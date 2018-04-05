@@ -32,4 +32,4 @@ src/threads/palloc*
 src/threads/pte.h
 src/threads/switch*
 src/threads/vaddr.h
-.vscode/
+#.vscode/
