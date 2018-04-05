@@ -11,6 +11,9 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+/* CODE added */
+#include "threads/fixed-point.h"
+/* ^ CODE added*/
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -71,6 +74,10 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+/* CODE added */
+static int load_avg;
+/* ^ CODE added*/
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -98,6 +105,10 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+
+  /* CODE added */
+  load_avg = FP_INT2FP(0);
+  /* CODE added */
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -357,32 +368,100 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  /* CODE added */
+  thread_current ()->nice = nice;
+  thread_calculate_priority (thread_current());
+  thread_yield();
+  /* ^ CODE added */
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  /* CODE added */
+  return thread_current() -> nice;
+  /* ^ CODE added */ 
+  /* return 0; */
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  /* CODE added */
+  load_avg = FP_MUL_INT(load_avg, 100);
+  load_avg = FP_FP2INT_ROUNDNEAR(load_avg);
+  return load_avg;
+  /* ^ CODE added */
+  /* return 0; */
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  /* CODE added */
+  return FP_FP2INT_ROUNDNEAR(FP_MUL_INT(thread_current() ->recent_cpu, 100));
+  /* ^ CODE added */
+  /* return 0; */
 }
+
+/* CODE added */
+void thread_increment_recent_cpu(void)
+{
+  struct thread *t = thread_current();
+  if (t == idle_thread){
+      return;
+  }
+  t->recent_cpu = FP_ADD_INT(t->recent_cpu, 1);
+}
+
+void
+thread_calculate_load_avg(void)
+{
+  size_t ready_threads UNUSED;
+  if (thread_current() != idle_thread){
+      ready_threads  = list_size (&ready_list) + 1;
+  }
+  else{
+      ready_threads = list_size (&ready_list);
+  }
+  load_avg = FP_ADD(FP_MUL_INT (FP_DIV_INT (FP_INT2FP (59), 60), load_avg), FP_MUL_INT (FP_DIV_INT (FP_INT2FP (1), 60), ready_threads));
+}
+
+void
+thread_calculate_recent_cpu(void)
+{
+  struct list_elem *e;
+  struct thread *t;
+  e = list_begin (&all_list);
+  while (e != list_end(&all_list)){
+      t = list_entry(e, struct thread, allelem);
+      if (t != idle_thread){
+          t->recent_cpu = FP_ADD_INT(FP_MUL(FP_DIV(FP_MUL_INT(load_avg, 2), FP_ADD_INT(FP_MUL_INT(load_avg, 2), 1 )), t->recent_cpu), t->nice);
+          thread_calculate_priority(t);
+      }
+      e = list_next(e);
+  }
+}
+
+void
+thread_calculate_priority(struct thread *t)
+{
+  if (t == idle_thread){
+      return;
+  }
+  /* PRIMAX = 63, PRIMIN = 0 as defined in thread.h */
+  t -> priority = FP_FP2INT_ROUNDZERO(FP_SUB_INT(FP_SUB(FP_INT2FP(PRI_MAX), FP_DIV_INT(t->recent_cpu, 4)), FP_MUL(t->nice, 2)));
+  if (t->priority > PRI_MAX){
+      t->priority = PRI_MAX;
+  }
+  else if (t->priority < PRI_MIN){
+      t->priority = PRI_MIN;
+  }
+}
+/* ^ CODE added */
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -470,6 +549,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
+  /* CODE added */
+  t->nice = 0;
+  t->recent_cpu = FP_INT2FP(0);
+  /* ^ CODE added */
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
