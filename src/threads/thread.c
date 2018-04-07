@@ -219,7 +219,11 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-
+  /* CODE added */
+  if (thread_current() ->priority < priority){
+      thread_yield();
+  }
+  /* ^ CODE added */
   return tid;
 }
 
@@ -256,7 +260,12 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
+  /* CODE added */
+  list_insert_ordered(&ready_list, &t ->elem, (list_less_func *)&thread_compare_priority, NULL);
+  /* ^ CODE added */
+  /* CODE unused
   list_push_back (&ready_list, &t->elem);
+  CODE unused */
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -326,8 +335,12 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread) 
+  if (cur != idle_thread){
+    /* CODE unused 
     list_push_back (&ready_list, &cur->elem);
+    CODE unused */
+    list_insert_ordered(&ready_list, &cur ->elem, (list_less_func*) &thread_compare_priority, NULL);
+  }
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -354,7 +367,28 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  /* CODE added */
+  /* Sets the current thread's priority to NEW_PRIORITY iff:
+    0. mlfqs is not enabled
+    1. There is no lock
+    2. NEW_PRIORITY is greater
+  */
+  if (thread_mlfqs){
+      return;
+  }
+  enum intr_level old_level = intr_disable();
+  struct thread *current = thread_current();
+  int previous_priority = current ->priority;
+  current ->base_priority = new_priority;
+  if (list_empty (&current ->locks) || new_priority > previous_priority){
+      current ->priority = new_priority;
+      thread_yield();
+  }
+  intr_set_level(old_level);
+  /* ^ CODE added */
+  /* CODE unused
   thread_current ()->priority = new_priority;
+  CODE unused */
 }
 
 /* Returns the current thread's priority. */
@@ -461,6 +495,45 @@ thread_calculate_priority(struct thread *t)
       t->priority = PRI_MIN;
   }
 }
+
+void 
+lock_update_priority(struct thread *t){
+  enum intr_level old_level = intr_disable();
+  int current_max_priority = t ->base_priority;
+  if (!list_empty(&t ->locks)){
+      list_sort(&t ->locks, lock_compare_priority, NULL);
+      if (list_entry(list_front(&t ->locks), struct lock, elem) ->max_priority > current_max_priority){
+        current_max_priority = list_entry(list_front(&t ->locks), struct lock, elem) ->max_priority;
+      }
+  }
+  t ->priority = current_max_priority;
+  intr_set_level(old_level);
+}
+
+void
+lock_set_priority_to(struct thread *t)
+{
+  enum intr_level old_level = intr_disable();
+  lock_update_priority(t);
+
+  if (t ->status == THREAD_READY){
+      list_remove (&t ->elem);
+      list_insert_ordered(&ready_list, &t ->elem, thread_compare_priority, NULL);
+  }
+
+  intr_set_level(old_level);
+}
+
+bool
+thread_compare_priority(const struct list_elem *m, const struct list_elem *n, void *aux UNUSED)
+{
+  if (list_entry(m, struct thread, elem) ->priority > list_entry(n, struct thread, elem) ->priority){
+      return true;
+  }
+  else{
+      return false;
+  }
+}
 /* ^ CODE added */
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -550,8 +623,12 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
   /* CODE added */
-  t->nice = 0;
-  t->recent_cpu = FP_INT2FP(0);
+  list_insert_ordered (&all_list, &t ->allelem, (list_less_func*) &thread_compare_priority, NULL);
+  t ->nice = 0;
+  t ->recent_cpu = FP_INT2FP(0);
+  t ->base_priority = priority;
+  list_init (&t ->locks);
+  t ->blocked = NULL;
   /* ^ CODE added */
 }
 
