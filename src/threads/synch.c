@@ -128,6 +128,7 @@ sema_up (struct semaphore *sema)
   }
   sema->value++;
   /* CODE added */
+  /* IMPORTANT */
   thread_yield();
   /* ^ CODE added */
   intr_set_level(old_level);
@@ -441,5 +442,23 @@ sema_compare_priority(const struct list_elem *m, const struct list_elem *n, void
   ASSERT (!list_empty (&sema_m ->semaphore.waiters));
   ASSERT (!list_empty (&sema_n ->semaphore.waiters));
   return (list_entry(list_front(&sema_m ->semaphore.waiters), struct thread, elem) ->priority > list_entry(list_front(&sema_n ->semaphore.waiters), struct thread, elem) ->priority);
+}
+
+void
+sema_down_old (struct semaphore *sema) 
+{
+  enum intr_level old_level;
+
+  ASSERT (sema != NULL);
+  ASSERT (!intr_context ());
+
+  old_level = intr_disable ();
+  while (sema->value == 0) 
+    {
+      list_push_back (&sema->waiters, &thread_current ()->elem);
+      thread_block ();
+    }
+  sema->value--;
+  intr_set_level (old_level);
 }
 /* ^ CODE added */

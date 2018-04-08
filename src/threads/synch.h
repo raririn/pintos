@@ -41,6 +41,7 @@ void lock_remove(struct lock *lock);
 void lock_update_priority(struct thread *t);
 
 bool sema_compare_priority(const struct list_elem *m, const struct list_elem *n, void *aux);
+void sema_down_old (struct semaphore *);
 /* ^ CODE added */
 
 /* Condition variable. */

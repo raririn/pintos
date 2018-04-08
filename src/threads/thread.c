@@ -454,7 +454,7 @@ void thread_increment_recent_cpu(void)
 void
 thread_calculate_load_avg(void)
 {
-  size_t ready_threads;
+  size_t ready_threads UNUSED;
   /*printf("Start <thread_calculate_load_avg\n");*/
   if (thread_current() != idle_thread){
       ready_threads  = list_size (&ready_list) + 1;
@@ -463,7 +463,8 @@ thread_calculate_load_avg(void)
       ready_threads = list_size (&ready_list);
   }
   load_avg = FP_MUL (FP_INT2FP (59)/ 60, load_avg) + FP_DIV_INT(FP_INT2FP(ready_threads), 60);
-  /*printf("End of <thread_calculate_load_avg> %d\n", load_avg);*/
+  printf("End of <thread_calculate_load_avg> %d\n", FP_FP2INT_ROUNDNEAR(100 * load_avg));
+
 }
 
 void
@@ -483,7 +484,7 @@ thread_calculate_recent_cpu(void)
       }
       e = list_next(e);
   }
-  printf("End of <thread_calculate_recent_cpu\n");
+  /*printf("End of <thread_calculate_recent_cpu\n");*/
 }
 
 void
