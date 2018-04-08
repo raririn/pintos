@@ -94,6 +94,7 @@ struct thread
     struct list_elem elem;              /* List element. */
 
     /* CODE added */
+    int64_t ticks_blocked;
     struct list locks;                  /* List of locks holding. */
     bool donated;                       /* Whether the thread has been donated */
     struct lock *blocked;               /* The lock the thread is blocked by */
@@ -148,6 +149,8 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 /* CODE added */
+void blocked_thread_check (struct thread *t, void *aux);
+
 void thread_increment_recent_cpu(void);
 void thread_calculate_load_avg(void);
 void thread_calculate_recent_cpu(void);

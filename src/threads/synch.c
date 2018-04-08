@@ -451,14 +451,18 @@ sema_down_old (struct semaphore *sema)
 
   ASSERT (sema != NULL);
   ASSERT (!intr_context ());
-
+  printf("<1-0>\n");
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
+      printf("<2-0>\n");
       list_push_back (&sema->waiters, &thread_current ()->elem);
-      thread_block ();
+      printf("<3-0>\n");
+      /*thread_block ();*/
     }
+  printf("<4-0>\n");
   sema->value--;
+  printf("<5-0>\n");
   intr_set_level (old_level);
 }
 /* ^ CODE added */

@@ -9,7 +9,6 @@
 #include "threads/thread.h"
 /* CODE added */
 #include "threads/fixed-point.h"
-#include <stdbool.h>
 /* ^ CODE added */
   
 /* See [8254] for hardware details of the 8254 timer chip. */
@@ -38,27 +37,13 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
-/* One sleeping thread's semaphore lock, as part of a list */
-bool sleeping_thread_insert_func (const struct list_elem *a,
-                                  const struct list_elem *b,
-                                  void *aux UNUSED);
-struct sleeping_thread {
-    struct list_elem elem; /* List Element */
-    struct semaphore semaphore; /* Semaphore */
-    int64_t wake_time; /* Time to wake this thread */
-};
-
-/* A list of sleeping threads */
-static struct list sleeping_threads_list;
-
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
 timer_init (void) 
 {
-    list_init(&sleeping_threads_list);
-    pit_configure_channel (0, 2, TIMER_FREQ);
-    intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  pit_configure_channel (0, 2, TIMER_FREQ);
+  intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -106,58 +91,21 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-/*
-  List_Insert_Ordered comparator function
-  Compares two struct sleeping_thread's by their wake_time
-  TRUE: a < b : a wakes earlier
-  FALSE: a >= b : b wakes earlier (or at same time)
- */
-bool
-sleeping_thread_insert_func (const struct list_elem *a,
-                             const struct list_elem *b,
-                             void *aux UNUSED)
-{
-    struct sleeping_thread *a_st =
-    list_entry (a, struct sleeping_thread, elem);
-    struct sleeping_thread *b_st =
-    list_entry (b, struct sleeping_thread, elem);
-    return a_st->wake_time < b_st->wake_time;
-}
-
-
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
-timer_sleep (int64_t sleep_ticks)
+timer_sleep (int64_t ticks) 
 {
-    int64_t start = timer_ticks();
+  if (ticks <= 0){
+      return;
+  }
 
-    ASSERT (intr_get_level () == INTR_ON);
-    printf("<1>\n");
-    // Return if we don't need to sleep
-    if(sleep_ticks <= 0) {
-        return;
-    }
-
-    struct sleeping_thread sleep;
-    sema_init(&(sleep.semaphore), 0);
-    sleep.wake_time = start + sleep_ticks;
-    printf("<2>\n");
-
-    //check again if we don't need to sleep
-    if(sleep.wake_time <= timer_ticks()) {
-        return;
-    }
-    printf("<3>\n");
-    enum intr_level old_level = intr_disable (); // disable interrupts
-    list_insert_ordered(&sleeping_threads_list, &(sleep.elem),
-                        sleeping_thread_insert_func, NULL);//insert sleep thread
-    printf("<4>\n");
-    intr_set_level (old_level); // enable interrupts
-    printf("<5>\n");
-    sema_down_old(&(sleep.semaphore));
-    printf("<6>\n");
-    printf("End of <timer_sleep>\n");
+  ASSERT (intr_get_level () == INTR_ON);
+  enum intr_level old_level = intr_disable();
+  struct thread *current = thread_current();
+  current ->ticks_blocked = ticks;
+  thread_block();
+  intr_set_level(old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -239,8 +187,11 @@ timer_interrupt (struct intr_frame *args UNUSED)
   thread_tick ();
   CODE unused */
   /* CODE added */
+  thread_foreach (blocked_thread_check, NULL);
   enum intr_level old_level = intr_disable();
   if (thread_mlfqs){
+      /*printf("Start <timer_interrupt>\n");
+      printf("ticks: %d\n", (int)(ticks));*/
       thread_increment_recent_cpu();
       if (ticks % TIMER_FREQ == 0){
           thread_calculate_load_avg();
@@ -254,7 +205,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
   /*printf("End of <timer_interrupt>\n");*/
   /*printf("ticks: %d\n", (int)ticks);*/
   thread_tick();
-  barrier();
 
    /*^ CODE added */
 }

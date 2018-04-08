@@ -220,6 +220,7 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
   /* CODE added */
+  t ->ticks_blocked = 0;
   if (thread_current() ->priority < priority){
       thread_yield();
   }
@@ -436,12 +437,24 @@ int
 thread_get_recent_cpu (void) 
 {
   /* CODE added */
-  /*return FP_FP2INT_ROUNDNEAR(100 * thread_current() ->recent_cpu);*/
-  return 0;
+  return FP_FP2INT_ROUNDNEAR(100 * thread_current() ->recent_cpu);
+  /*return 0;*/
   /* ^ CODE added */
 }
 
 /* CODE added */
+
+void 
+blocked_thread_check (struct thread *t, void *aux UNUSED)
+{
+  if (t ->status == THREAD_BLOCKED && t ->ticks_blocked > 0){
+      t ->ticks_blocked--;
+      if (t ->ticks_blocked == 0){
+          thread_unblock(t);
+      }
+  }
+}
+
 void thread_increment_recent_cpu(void)
 {
   struct thread *current = thread_current();
@@ -463,7 +476,7 @@ thread_calculate_load_avg(void)
       ready_threads = list_size (&ready_list);
   }
   load_avg = FP_MUL (FP_INT2FP (59)/ 60, load_avg) + FP_DIV_INT(FP_INT2FP(ready_threads), 60);
-  printf("End of <thread_calculate_load_avg> %d\n", FP_FP2INT_ROUNDNEAR(100 * load_avg));
+  /*printf("End of <thread_calculate_load_avg> %d\n", FP_FP2INT_ROUNDNEAR(100 * load_avg));*/
 
 }
 
