@@ -313,13 +313,13 @@ lock_release (struct lock *lock)
   enum intr_level old_level = intr_disable();
   if (!thread_mlfqs){
       lock_remove(lock);
+  }
   /* ^ CODE added */
   lock->holder = NULL;
   sema_up (&lock->semaphore);
   /* CODE added */
   intr_set_level(old_level);
   /* ^ CODE added */
-  }
 }
 
 /* Returns true if the current thread holds LOCK, false

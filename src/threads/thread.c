@@ -105,10 +105,6 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
-
-  /* CODE added */
-  load_avg = FP_INT2FP(0);
-  /* CODE added */
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -120,6 +116,10 @@ thread_start (void)
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
   thread_create ("idle", PRI_MIN, idle, &idle_started);
+
+  /* CODE added */
+  load_avg = FP_INT2FP(0);
+  /* CODE added */
 
   /* Start preemptive thread scheduling. */
   intr_enable ();
@@ -374,6 +374,7 @@ thread_set_priority (int new_priority)
     2. NEW_PRIORITY is greater
   */
   if (thread_mlfqs){
+      debug_backtrace();
       return;
   }
   enum intr_level old_level = intr_disable();
@@ -415,8 +416,7 @@ thread_get_nice (void)
 {
   /* CODE added */
   return thread_current() -> nice;
-  /* ^ CODE added */ 
-  /* return 0; */
+  /* ^ CODE added */
 }
 
 /* Returns 100 times the system load average. */
@@ -424,11 +424,11 @@ int
 thread_get_load_avg (void) 
 {
   /* CODE added */
-  load_avg = FP_MUL_INT(load_avg, 100);
-  load_avg = FP_FP2INT_ROUNDNEAR(load_avg);
-  return load_avg;
+  int temp;
+  temp = FP_FP2INT_ROUNDNEAR(100 * load_avg);
+  /*printf("Start <thread_get_load_avg> %d\n", temp);*/
+  return temp;
   /* ^ CODE added */
-  /* return 0; */
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -436,48 +436,54 @@ int
 thread_get_recent_cpu (void) 
 {
   /* CODE added */
-  return FP_FP2INT_ROUNDNEAR(FP_MUL_INT(thread_current() ->recent_cpu, 100));
+  /*return FP_FP2INT_ROUNDNEAR(100 * thread_current() ->recent_cpu);*/
+  return 0;
   /* ^ CODE added */
-  /* return 0; */
 }
 
 /* CODE added */
 void thread_increment_recent_cpu(void)
 {
-  struct thread *t = thread_current();
-  if (t == idle_thread){
+  struct thread *current = thread_current();
+  if (current == idle_thread){
       return;
   }
-  t->recent_cpu = FP_ADD_INT(t->recent_cpu, 1);
+  current->recent_cpu = FP_ADD_INT(current->recent_cpu, 1);
 }
 
 void
 thread_calculate_load_avg(void)
 {
-  size_t ready_threads UNUSED;
+  size_t ready_threads;
+  /*printf("Start <thread_calculate_load_avg\n");*/
   if (thread_current() != idle_thread){
       ready_threads  = list_size (&ready_list) + 1;
   }
   else{
       ready_threads = list_size (&ready_list);
   }
-  load_avg = FP_ADD(FP_MUL_INT (FP_DIV_INT (FP_INT2FP (59), 60), load_avg), FP_MUL_INT (FP_DIV_INT (FP_INT2FP (1), 60), ready_threads));
+  load_avg = FP_MUL (FP_INT2FP (59)/ 60, load_avg) + FP_DIV_INT(FP_INT2FP(ready_threads), 60);
+  /*printf("End of <thread_calculate_load_avg> %d\n", load_avg);*/
 }
 
 void
 thread_calculate_recent_cpu(void)
 {
-  struct list_elem *e;
-  struct thread *t;
+  /*printf("Start <thread_calculate_recent_cpu\n");*/
+  struct list_elem *e UNUSED;
+  struct thread *t UNUSED;
   e = list_begin (&all_list);
   while (e != list_end(&all_list)){
       t = list_entry(e, struct thread, allelem);
+      ASSERT (is_thread(t));
       if (t != idle_thread){
-          t->recent_cpu = FP_ADD_INT(FP_MUL(FP_DIV(FP_MUL_INT(load_avg, 2), FP_ADD_INT(FP_MUL_INT(load_avg, 2), 1 )), t->recent_cpu), t->nice);
+          int load = 2 * load_avg;
+          t->recent_cpu = FP_ADD_INT(FP_MUL(FP_DIV(load, FP_ADD_INT(load, 1)), t->recent_cpu), t->nice);
           thread_calculate_priority(t);
       }
       e = list_next(e);
   }
+  printf("End of <thread_calculate_recent_cpu\n");
 }
 
 void
@@ -485,9 +491,8 @@ thread_calculate_priority(struct thread *t)
 {
   if (t == idle_thread){
       return;
-  }
-  /* PRIMAX = 63, PRIMIN = 0 as defined in thread.h */
-  t -> priority = FP_FP2INT_ROUNDZERO(FP_SUB_INT(FP_SUB(FP_INT2FP(PRI_MAX), FP_DIV_INT(t->recent_cpu, 4)), FP_MUL(t->nice, 2)));
+  } 
+  t -> priority = FP_FP2INT_ROUNDZERO(FP_SUB_INT(FP_INT2FP(PRI_MAX) - (t->recent_cpu / 4), 2 * t->nice));
   if (t->priority > PRI_MAX){
       t->priority = PRI_MAX;
   }
@@ -621,7 +626,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  list_push_back (&all_list, &t->allelem);
+  /*list_push_back (&all_list, &t->allelem);*/
   /* CODE added */
   list_insert_ordered (&all_list, &t ->allelem, (list_less_func*) &thread_compare_priority, NULL);
   t ->nice = 0;
