@@ -221,7 +221,7 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
   /* CODE added */
   t ->ticks_blocked = 0;
-  if (thread_current() ->priority < priority){
+  if (priority > thread_current() ->priority){
       thread_yield();
   }
   /* ^ CODE added */
@@ -455,7 +455,8 @@ blocked_thread_check (struct thread *t, void *aux UNUSED)
   }
 }
 
-void thread_increment_recent_cpu(void)
+void 
+thread_increment_recent_cpu(void)
 {
   struct thread *current = thread_current();
   if (current == idle_thread){
@@ -536,6 +537,7 @@ lock_set_priority_to(struct thread *t)
   lock_update_priority(t);
 
   if (t ->status == THREAD_READY){
+      /* Re-insert the item */
       list_remove (&t ->elem);
       list_insert_ordered(&ready_list, &t ->elem, thread_compare_priority, NULL);
   }

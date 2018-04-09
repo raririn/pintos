@@ -1,5 +1,5 @@
 			+--------------------+
-			|        CS 140      |
+			|        CS 130      |
 			| PROJECT 1: THREADS |
 			|   DESIGN DOCUMENT  |
 			+--------------------+
@@ -8,9 +8,8 @@
 
 >> Fill in the names and email addresses of your group members.
 
-yufy@shanghaitech.edu.cn
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Yu Feiyang  yufy@shanghaitech.edu.cn
+Feng Zeyuan fengzy@shanghaitech.edu.cn
 
 ---- PRELIMINARIES ----
 
@@ -22,7 +21,9 @@ FirstName LastName <email@domain.example>
 >> text, lecture notes, and course staff.
 
 www.cnblogs.com/laiy/p/pintos_project1_thread.html
-Tons of pages on StackOverflow
+https://blog.csdn.net/hitwhylz/article/details/24596011
+https://stackoverflow.com/questions/15354286/pintos-kernel-panic-with-v-option-bochs-on-ubuntu
+and tons of other pages on StackOverflow
 
 			     ALARM CLOCK
 			     ===========
@@ -33,26 +34,53 @@ Tons of pages on StackOverflow
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+
+enum intr_level old_level = intr_disable()
+This enumeration is used to save the disabled interreupt and recovered later.
+
+struct thread *current = thread_current()
+used to storage the thread_current info to thread.
+
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
+
+In the timer_sleep(), first check if we need to make the thread sleep;
+then use thread_block to block the thread instead of thread_yield. We need to disable the interrupts during the block to avoid race.
+The timer interrupt handler deals with the blocked threads, waking up each threads and deal
+with load_avg and recent_cpu info
+
+
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
+
+If ticks is the multiple of four, thread_calculate_priority(thread_current()) to decrease time cost.
 
 ---- SYNCHRONIZATION ----
 
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
 
+
+Use thread_block() instead of using lock.
+
+
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
+
+
+Disable the interrupt temporarily.
+
 
 ---- RATIONALE ----
 
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+
+This design has a clear structure and easy to understand what is changed, and also is easier to realize compaired to other designs.
 
 			 PRIORITY SCHEDULING
 			 ===================
@@ -231,7 +259,8 @@ yufy: Debug hints. printf() gives strange behavior when running multi-thread pro
 >> students, either for future quarters or the remaining projects?
 
 yufy: No.
+Fengzy: More fundamental knowladges on pintos functions or pintos structure should be covered during the recitation cource, which can make it easier to understand the whole project.
 
 >> Any other comments?
-
 yufy: No.
+fengzy: No.
