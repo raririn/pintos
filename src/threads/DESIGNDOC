@@ -1,0 +1,266 @@
+			+--------------------+
+			|        CS 130      |
+			| PROJECT 1: THREADS |
+			|   DESIGN DOCUMENT  |
+			+--------------------+
+				   
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+Yu Feiyang  yufy@shanghaitech.edu.cn
+Feng Zeyuan fengzy@shanghaitech.edu.cn
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+www.cnblogs.com/laiy/p/pintos_project1_thread.html
+https://blog.csdn.net/hitwhylz/article/details/24596011
+https://stackoverflow.com/questions/15354286/pintos-kernel-panic-with-v-option-bochs-on-ubuntu
+and tons of other pages on StackOverflow
+
+			     ALARM CLOCK
+			     ===========
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+
+enum intr_level old_level = intr_disable()
+This enumeration is used to save the disabled interreupt and recovered later.
+
+struct thread *current = thread_current()
+used to storage the thread_current info to thread.
+
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe what happens in a call to timer_sleep(),
+>> including the effects of the timer interrupt handler.
+
+
+In the timer_sleep(), first check if we need to make the thread sleep;
+then use thread_block to block the thread instead of thread_yield. We need to disable the interrupts during the block to avoid race.
+The timer interrupt handler deals with the blocked threads, waking up each threads and deal
+with load_avg and recent_cpu info
+
+
+>> A3: What steps are taken to minimize the amount of time spent in
+>> the timer interrupt handler?
+
+If ticks is the multiple of four, thread_calculate_priority(thread_current()) to decrease time cost.
+
+---- SYNCHRONIZATION ----
+
+>> A4: How are race conditions avoided when multiple threads call
+>> timer_sleep() simultaneously?
+
+
+Use thread_block() instead of using lock.
+
+
+>> A5: How are race conditions avoided when a timer interrupt occurs
+>> during a call to timer_sleep()?
+
+
+Disable the interrupt temporarily.
+
+
+---- RATIONALE ----
+
+>> A6: Why did you choose this design?  In what ways is it superior to
+>> another design you considered?
+
+This design has a clear structure and easy to understand what is changed, and also is easier to realize compaired to other designs.
+
+			 PRIORITY SCHEDULING
+			 ===================
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+struct thread;
+// Add several attributes to satisfy the need of the task.
+
+struct lock;
+// Add several attributes to satisfy the need of the task.
+
+
+>> B2: Explain the data structure used to track priority donation.
+>> Use ASCII art to diagram a nested donation.  (Alternately, submit a
+>> .png file.)
+
+H_1 - - - - - - LOCK
+H_2 - - - M - - -L
+
+M donates to H_1, H_2
+L donates to M
+
+M ->blocked = LOCK
+L ->blocked = NULL
+
+---- ALGORITHMS ----
+
+>> B3: How do you ensure that the highest priority thread waiting for
+>> a lock, semaphore, or condition variable wakes up first?
+
+The list of waiters are inserted such the front thread has the highest priority (using insertion controlled priority queue).
+
+>> B4: Describe the sequence of events when a call to lock_acquire()
+>> causes a priority donation.  How is nested donation handled?
+
+current = thread_current();
+1. Make current wait on the current lock.
+2. Add current to the list of donations of the lock holder.
+3. Interatively process the donation until there is no lock left. (The algorithm is written in lock_update_priority())
+
+>> B5: Describe the sequence of events when lock_release() is called
+>> on a lock that a higher-priority thread is waiting for.
+
+1. lock->holder = NULL
+2. Remove the thread's waiting on the lock from the current donation list.
+3. Update the current priority i.e. find the thread with the highest priority on the list.
+4. Let the thread found acquire the lock.
+5. Check if the current thread is still the one with the highest priority. Else run yield.
+
+---- SYNCHRONIZATION ----
+
+>> B6: Describe a potential race in thread_set_priority() and explain
+>> how your implementation avoids it.  Can you use a lock to avoid
+>> this race?
+
+It could be while the thread priority is being updated, the interrupt handler (timer_interrupt) is trying to write over it. Locks cannot be used to avoid such cases.
+
+---- RATIONALE ----
+
+>> B7: Why did you choose this design?  In what ways is it superior to
+>> another design you considered?
+
+I think this design requires fewer addtional functions/variables and is easy to understand. While the given list implementation is there, it is rather easy to implement too. I once thought a design where there is a boolean variable recording whether a thread has donated. But it turned out to be far more complicated.
+
+			  ADVANCED SCHEDULER
+			  ==================
+
+---- DATA STRUCTURES ----
+
+>> C1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+int nice;
+int recent_cpu;
+int load_avg;
+struct thread;
+// All the changes/declarations are added as they are described in project doc.
+
+---- ALGORITHMS ----
+
+>> C2: Suppose threads A, B, and C have nice values 0, 1, and 2.  Each
+>> has a recent_cpu value of 0.  Fill in the table below showing the
+>> scheduling decision and the priority and recent_cpu values for each
+>> thread after each given number of timer ticks:
+
+timer  recent_cpu    priority   thread
+ticks   A   B   C   A   B   C   to run
+-----  --  --  --  --  --  --   ------
+ 0	   0   0   0   63  61  59  A
+ 4        4   0   0   62  61  59  A 
+ 8        8   0   0   61  61  59  B
+12       8   4   0   61  60  69  A
+16       12 4   0   60  60  59  B
+20       12 8   0   60  59  59  A 
+24       16 8   0   59  59  59  C
+28       16 8   4   59  59  58  B
+32       16 12 4   59  58  58  A
+36       20 12 4   58  58  58  C
+
+>> C3: Did any ambiguities in the scheduler specification make values
+>> in the table uncertain?  If so, what rule did you use to resolve
+>> them?  Does this match the behavior of your scheduler?
+
+Yes, when there are two threads with the same priority.
+My rule used in the task:
+1. The current thread goes first.
+2. The thread which has been run least recently first. (Due to the property of list)
+And it matches the behavior of my scheduler.
+
+>> C4: How is the way you divided the cost of scheduling between code
+>> inside and outside interrupt context likely to affect performance?
+
+In my implementation, only when nice value is changed the calculation is done outside interrupt. Since the load_avg, recent_cpu as well as priority should be calculated over all threads every second, the calculation might be very expensive depending on the machine. As it obviously affect the performance, I cannot say it is good in certain cases.
+
+---- RATIONALE ----
+
+>> C5: Briefly critique your design, pointing out advantages and
+>> disadvantages in your design choices.  If you were to have extra
+>> time to work on this part of the project, how might you choose to
+>> refine or improve your design?
+
+Advantages:
+1. Friendly to debugging. Commenting out the addtional code in timer_interrupt completely disables any function added in the task.
+2. Few addition of new variables which results in good readability.
+
+Disadvantages:
+1. Methods rely on some functions in previous task. Rather annoying if there is something wrong in them.
+2. Performance is not ideal due to both the list structure and interrupt management.
+
+Possible Improvement:
+1. More error detections.
+2. Data structure with higher efficency.
+3. Better-designed fixed-point.h.
+
+>> C6: The assignment explains arithmetic for fixed-point math in
+>> detail, but it leaves it open to you to implement it.  Why did you
+>> decide to implement it the way you did?  If you created an
+>> abstraction layer for fixed-point math, that is, an abstract data
+>> type and/or a set of functions or macros to manipulate fixed-point
+>> numbers, why did you do so?  If not, why not?
+
+I implemented it in a header file as shown in the project doc. Since the algorithms are given and not so complicated, I think using macros is the best way so that it is more readable. I think it is also possible to use specific functions to handle it, but it is not as convenient as marcos.
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+yufy: Problem 2 is too hard. It takes me roughly 20+ hrs on only debugging.
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+yufy: Yes.
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+yufy: Debug hints. printf() gives strange behavior when running multi-thread programs. If you see <1> but not <2>, it DOESN'T mean there is something wrong between the two printf() lines.
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+yufy: No.
+Fengzy: More fundamental knowladges on pintos functions or pintos structure should be covered during the recitation cource, which can make it easier to understand the whole project.
+
+>> Any other comments?
+yufy: No.
+fengzy: No.
