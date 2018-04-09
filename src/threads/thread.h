@@ -94,8 +94,13 @@ struct thread
     struct list_elem elem;              /* List element. */
 
     /* CODE added */
-    int nice;
-    int recent_cpu;
+    int64_t ticks_blocked;
+    struct list locks;                  /* List of locks holding. */
+    bool donated;                       /* Whether the thread has been donated */
+    struct lock *blocked;               /* The lock the thread is blocked by */
+    int base_priority;                  /* Base priority. */
+    int nice;                           /* Nice value of a thread. */
+    int recent_cpu;                     /* Value of recent cpu usage. */
     /* ^ CODE added */
 
 #ifdef USERPROG
@@ -144,10 +149,15 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 /* CODE added */
+void blocked_thread_check (struct thread *t, void *aux);
+
 void thread_increment_recent_cpu(void);
 void thread_calculate_load_avg(void);
 void thread_calculate_recent_cpu(void);
 void thread_calculate_priority(struct thread *t);
+bool thread_compare_priority(const struct list_elem *m, const struct list_elem *n, void *aux);
+
+void lock_set_priority_to(struct thread *t);
 /* CODE added */
 
 #endif /* threads/thread.h */
