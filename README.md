@@ -1,7 +1,9 @@
 # pintos
 
-Modified only the following files:
-devices/timer.c
-threads/thread.c
-threads/thread.h
-threads/fixed-point.h
+ pintos Project 1: Threads  
+ Mostly based on laiy's tutorial on cnblogs.  
+   
+ Passed all 27 tests.  
+ 
+ Note:  
+ shutdown.c is modified to solve qemu timeout issues.
