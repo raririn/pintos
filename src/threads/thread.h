@@ -101,6 +101,7 @@ struct thread
     int base_priority;                  /* Base priority. */
     int nice;                           /* Nice value of a thread. */
     int recent_cpu;                     /* Value of recent cpu usage. */
+    int return_value;                   /* ADDED IN PROJ2 Return value of the thread. */
     /* ^ CODE added */
 
 #ifdef USERPROG
