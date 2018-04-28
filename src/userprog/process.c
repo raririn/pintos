@@ -67,7 +67,7 @@ process_execute (const char *cmdline)
   pcb->cmdline = cmdline_copy;
   pcb->waiting = false;
   pcb->exited = false;
-  pcb->orphan = false;
+  pcb->is_parent_exited = false;
   pcb->exitcode = -1; // undefined
 
   sema_init(&pcb->process_lock, 0);
@@ -185,20 +185,7 @@ start_process_end:
 int
 process_wait (tid_t child_tid)
 {
-  struct thread *current = thread_current ();
-  struct list *child_list = &(current ->child_list);
-  struct process_control_block *child_pcb = NULL;
-  struct list_elem *it = NULL;
-  /* Find the process with tid = child_tid */
-  if (!list_empty(child_list)) {
-    for (it = list_front(child_list); it != list_end(child_list); it = list_next(it)) {
-      struct process_control_block *pcb = list_entry(it, struct process_control_block, elem);
-      if(pcb->pid == child_tid) {
-        child_pcb = pcb;
-        break;
-      }
-    }
-  }
+  struct process_control_block *child_pcb = get_child(child_tid);
 
   /* If not found, return -1. */
   if (child_pcb == NULL) {
@@ -207,15 +194,13 @@ process_wait (tid_t child_tid)
   if (child_pcb->waiting) {
     return -1;
   }
-  else {
-    child_pcb->waiting = true;
-  }
+  child_pcb->waiting = true;
 
   if (!child_pcb->exited) {
     sema_down(& (child_pcb->wait_lock));
   }
 
-  list_remove (it);
+  remove_single_child_process(child_tid);
   int temp = child_pcb->exitcode;
   palloc_free_page(child_pcb);
 
@@ -226,12 +211,12 @@ process_wait (tid_t child_tid)
 void
 process_exit (void)
 {
-  struct thread *cur = thread_current ();
+  struct thread *current = thread_current ();
   uint32_t *pd;
 
   /* Resources should be cleaned up */
   // 1. file descriptors
-  struct list *fdlist = &cur->file_descriptors;
+  struct list *fdlist = &current->file_descriptors;
   while (!list_empty(fdlist)) {
     struct list_elem *e = list_pop_front (fdlist);
     struct file_desc *desc = list_entry(e, struct file_desc, elem);
@@ -240,40 +225,28 @@ process_exit (void)
   }
 
   // 2. clean up pcb object of all children processes
-  struct list *child_list = &cur->child_list;
-  while (!list_empty(child_list)) {
-    struct list_elem *e = list_pop_front (child_list);
-    struct process_control_block *pcb;
-    pcb = list_entry(e, struct process_control_block, elem);
-    if (pcb->exited == true) {
-      // pcb can freed when it is already terminated
-      palloc_free_page (pcb);
-    } else {
-      // the child process becomes an orphan.
-      // do not free pcb yet, postpone until the child terminates
-      pcb->orphan = true;
-    }
-  }
+  /*MARK*/
+  remove_multiple_child_process();
 
   /* Release file for the executable */
-  if(cur->executing_file) {
-    file_allow_write(cur->executing_file);
-    file_close(cur->executing_file);
+  if(current->executing_file) {
+    file_allow_write(current->executing_file);
+    file_close(current->executing_file);
   }
 
   // Unblock the waiting parent process, if any, from wait().
   // now its resource (pcb on page, etc.) can be freed.
-  sema_up (&cur->pcb->wait_lock);
+  sema_up (&current->pcb->wait_lock);
 
-  // Destroy the pcb object by itself, if it is orphan.
+  // Destroy the pcb object by itself, if it is is_parent_exited.
   // see (part 2) of above.
-  if (cur->pcb->orphan == true) {
-    palloc_free_page (& cur->pcb);
+  if (current->pcb->is_parent_exited == true) {
+    palloc_free_page (& current->pcb);
   }
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-  pd = cur->pagedir;
+  pd = current->pagedir;
   if (pd != NULL)
     {
       /* Correct ordering here is crucial.  We must set
@@ -283,7 +256,7 @@ process_exit (void)
          directory before destroying the process's page
          directory, or our active page directory will be one
          that's been freed (and cleared). */
-      cur->pagedir = NULL;
+      current->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
@@ -682,4 +655,58 @@ push_arguments (const char* cmdline_chars[], int argc, void **esp)
   *esp -= 4;
   *((int*) *esp) = 0;
 
+}
+
+/* Return the pcb of matching child. */
+struct process_control_block* 
+get_child(tid_t child_tid){
+    struct thread *current = thread_current();
+    struct list *child_list = &(current ->child_list);
+    struct process_control_block *child_pcb = NULL;
+    struct list_elem *e;
+    if (!list_empty(child_list)) {
+        for (e = list_front(child_list); e != list_end(child_list); e = list_next(e)) {
+            struct process_control_block *pcb = list_entry(e, struct process_control_block, elem);
+            if(pcb->pid == child_tid) {
+                child_pcb = pcb;
+                break;
+            }
+        }
+    }
+    return child_pcb;    
+}
+
+void 
+remove_single_child_process(tid_t child_tid)
+{
+    struct thread *current = thread_current();
+    struct list *child_list = &(current ->child_list);
+    struct list_elem *e;
+    if (!list_empty(child_list)) {
+        for (e = list_front(child_list); e != list_end(child_list); e = list_next(e)) {
+            struct process_control_block *pcb = list_entry(e, struct process_control_block, elem);
+            if(pcb->pid == child_tid) {
+                break;
+            }
+        }
+    }
+    list_remove(e);
+}
+
+void
+remove_multiple_child_process(void)
+{
+    struct thread *current = thread_current();
+    struct list *child_list = &current->child_list;
+    while (!list_empty(child_list)){
+        struct list_elem *e = list_pop_front (child_list);
+        struct process_control_block *pcb;
+        pcb = list_entry(e, struct process_control_block, elem);
+        if (pcb->exited == true){
+            palloc_free_page (pcb);
+        } 
+        else{
+            pcb->is_parent_exited = true;
+        }
+    }
 }

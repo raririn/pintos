@@ -431,8 +431,11 @@ int sys_write(int fd, const void *buffer, unsigned size) {
 static void
 check_user (const uint8_t *uaddr)
 {
-  if(get_user (uaddr) == -1)
-    fail_invalid_access();
+  /* God, it seems it important to call that assembly code before calling fail_invalid_access
+     But I DON'T KNOW WHY */
+  if(get_user (uaddr) == -1){
+      fail_invalid_access();
+  }
 }
 
 /* Reads a byte at user virtual address UADDR.

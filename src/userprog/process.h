@@ -15,8 +15,9 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
 
-struct process_control_block get_child(tid_t child_tid);
-void remove_single_child_process(void);
+struct process_control_block* get_child(tid_t child_tid);
+void remove_single_child_process(tid_t child_tid);
+void remove_multiple_child_process(void);
 
 /* PCB : see initialization at process_execute(). */
 struct process_control_block {
@@ -26,7 +27,7 @@ struct process_control_block {
 
   bool waiting;             /* indicates whether parent process is waiting on this. */
   bool exited;              /* indicates whether the process is done (exited). */
-  bool orphan;              /* indicates whether the parent process has terminated before. */
+  bool is_parent_exited;              /* indicates whether the parent process has terminated before. */
   int32_t exitcode;         /* the exit code passed from exit(), when exited = true */
 
   /* Synchronization */
