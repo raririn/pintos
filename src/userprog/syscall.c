@@ -243,7 +243,7 @@ void sys_halt(void) {
 
 void sys_exit(int status) {
   printf("%s: exit(%d)\n", thread_current()->name, status);
-  struct process_control_block *pcb = thread_current()->pcb;
+  struct process_status *pcb = thread_current()->pcb;
   if(pcb != NULL) {
     pcb->exited = true;
     pcb->exitcode = status;

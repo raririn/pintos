@@ -15,12 +15,13 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
 
-struct process_control_block* get_child(tid_t child_tid);
+struct process_status* get_child(tid_t child_tid);
 void remove_single_child_process(tid_t child_tid);
 void remove_multiple_child_process(void);
+void process_close_file(void);
 
 /* PCB : see initialization at process_execute(). */
-struct process_control_block {
+struct process_status{
   pid_t pid;                /* The pid of process */
   const char* cmdline;      /* The command line of this process being executed */
   struct list_elem elem;    /* element for thread.child_list */

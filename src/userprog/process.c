@@ -29,30 +29,29 @@ static void push_arguments (const char *[], int cnt, void **esp);
    NOTE: the argument is adjusted from the source file.
    */
 pid_t
-process_execute (const char *cmdline)
+process_execute (const char *file_name)
 {
   char *fn_copy = NULL;
   tid_t tid;
-  char *file_name = NULL;
   char *cmdline_copy = NULL;
   char *save_ptr = NULL;
-  struct process_control_block *pcb = NULL;
+  struct process_status *pcb = NULL;
   
-  /* Make a copy of cmdline.
+  /* Make a copy of file_name.
      Otherwise there's a race between the caller and load(). */
   cmdline_copy = palloc_get_page (0);
   if (cmdline_copy == NULL) {
     goto process_execute_TID_ERROR;
   }
-  strlcpy(cmdline_copy, cmdline, PGSIZE);
+  strlcpy(cmdline_copy, file_name, PGSIZE);
 
   /* Obtain file name. */
-  file_name = palloc_get_page (0);
-  if (file_name == NULL) {
+  fn_copy = palloc_get_page (0);
+  if (fn_copy == NULL) {
     goto process_execute_TID_ERROR;
   }
-  strlcpy(file_name, cmdline, PGSIZE);
-  file_name = strtok_r(file_name, " ", &save_ptr);
+  strlcpy(fn_copy, file_name, PGSIZE);
+  fn_copy = strtok_r(fn_copy, " ", &save_ptr);
 
   /* Create a new thread to execute FILE_NAME. */
 
@@ -73,22 +72,22 @@ process_execute (const char *cmdline)
   sema_init(&pcb->process_lock, 0);
   sema_init(&pcb->wait_lock, 0);
 
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, pcb);
+  tid = thread_create (fn_copy, PRI_DEFAULT, start_process, pcb);
 
-  if (tid == TID_ERROR) {
+  if (tid == TID_ERROR){
     goto process_execute_TID_ERROR;
   }
   /* Wait for start_process() */
   sema_down(&pcb->process_lock);
-  if(cmdline_copy) {
+  if(cmdline_copy){
     palloc_free_page (cmdline_copy);
   }
 
-  if(pcb->pid >= 0) {
+  if(pcb->pid >= 0){
     list_push_back (&(thread_current()->child_list), &(pcb->elem));
   }
 
-  palloc_free_page (file_name);
+  palloc_free_page (fn_copy);
   return pcb->pid;
 
 process_execute_TID_ERROR:
@@ -115,7 +114,7 @@ static void
 start_process (void *pcb_)
 {
   struct thread *t = thread_current();
-  struct process_control_block *pcb = pcb_;
+  struct process_status *pcb = pcb_;
 
   char *file_name = (char*) pcb->cmdline;
   bool success = false;
@@ -185,7 +184,7 @@ start_process_end:
 int
 process_wait (tid_t child_tid)
 {
-  struct process_control_block *child_pcb = get_child(child_tid);
+  struct process_status *child_pcb = get_child(child_tid);
 
   /* If not found, return -1. */
   if (child_pcb == NULL) {
@@ -214,18 +213,8 @@ process_exit (void)
   struct thread *current = thread_current ();
   uint32_t *pd;
 
-  /* Resources should be cleaned up */
-  // 1. file descriptors
-  struct list *fdlist = &current->file_descriptors;
-  while (!list_empty(fdlist)) {
-    struct list_elem *e = list_pop_front (fdlist);
-    struct file_desc *desc = list_entry(e, struct file_desc, elem);
-    file_close(desc->file);
-    palloc_free_page(desc); // see sys_open()
-  }
+  process_close_file();
 
-  // 2. clean up pcb object of all children processes
-  /*MARK*/
   remove_multiple_child_process();
 
   /* Release file for the executable */
@@ -234,12 +223,10 @@ process_exit (void)
     file_close(current->executing_file);
   }
 
-  // Unblock the waiting parent process, if any, from wait().
-  // now its resource (pcb on page, etc.) can be freed.
+  /* Unblock the waiting process. */
   sema_up (&current->pcb->wait_lock);
 
-  // Destroy the pcb object by itself, if it is is_parent_exited.
-  // see (part 2) of above.
+  /* If the process still have parent, destory it, */
   if (current->pcb->is_parent_exited == true) {
     palloc_free_page (& current->pcb);
   }
@@ -658,15 +645,15 @@ push_arguments (const char* cmdline_chars[], int argc, void **esp)
 }
 
 /* Return the pcb of matching child. */
-struct process_control_block* 
+struct process_status* 
 get_child(tid_t child_tid){
     struct thread *current = thread_current();
     struct list *child_list = &(current ->child_list);
-    struct process_control_block *child_pcb = NULL;
+    struct process_status *child_pcb = NULL;
     struct list_elem *e;
     if (!list_empty(child_list)) {
         for (e = list_front(child_list); e != list_end(child_list); e = list_next(e)) {
-            struct process_control_block *pcb = list_entry(e, struct process_control_block, elem);
+            struct process_status *pcb = list_entry(e, struct process_status, elem);
             if(pcb->pid == child_tid) {
                 child_pcb = pcb;
                 break;
@@ -681,10 +668,10 @@ remove_single_child_process(tid_t child_tid)
 {
     struct thread *current = thread_current();
     struct list *child_list = &(current ->child_list);
-    struct list_elem *e;
+    struct list_elem *e; /* Since the declaration cannot be made in for, e might not be used during the function call. */
     if (!list_empty(child_list)) {
         for (e = list_front(child_list); e != list_end(child_list); e = list_next(e)) {
-            struct process_control_block *pcb = list_entry(e, struct process_control_block, elem);
+            struct process_status *pcb = list_entry(e, struct process_status, elem);
             if(pcb->pid == child_tid) {
                 break;
             }
@@ -700,13 +687,26 @@ remove_multiple_child_process(void)
     struct list *child_list = &current->child_list;
     while (!list_empty(child_list)){
         struct list_elem *e = list_pop_front (child_list);
-        struct process_control_block *pcb;
-        pcb = list_entry(e, struct process_control_block, elem);
+        struct process_status *pcb;
+        pcb = list_entry(e, struct process_status, elem);
         if (pcb->exited == true){
-            palloc_free_page (pcb);
+            palloc_free_page(pcb);
         } 
         else{
             pcb->is_parent_exited = true;
         }
+    }
+}
+
+void 
+process_close_file(void)
+{
+    struct thread *current = thread_current();
+    struct list *fdlist = &current->file_descriptors;
+    while (!list_empty(fdlist)) {
+        struct list_elem *e = list_pop_front (fdlist);
+        struct file_desc *descriptor = list_entry(e, struct file_desc, elem);
+        file_close(descriptor->file);
+        palloc_free_page(descriptor);
     }
 }
