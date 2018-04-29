@@ -20,7 +20,6 @@
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
-static void push_arguments (const char *[], int cnt, void **esp);
 
 /* Starts a new thread running a user program loaded from
    FILENAME. The new thread may be scheduled (and may even exit)
@@ -73,7 +72,6 @@ process_execute (const char *file_name)
   p_status->is_exited = false;
   p_status->is_parent_exited = false;
   p_status->exitcode = -1; /* Undefined */
-
   sema_init(&p_status->process_lock, 0);
   sema_init(&p_status->wait_lock, 0);
 
@@ -124,11 +122,11 @@ start_process (void *status_)
 
   char* token;
   char* save_ptr;
-  int cnt = 0;
+  int count = 0;
   for (token = strtok_r(file_name, " ", &save_ptr); token != NULL;
       token = strtok_r(NULL, " ", &save_ptr))
   {
-    cmdline_chars[cnt++] = token;
+    cmdline_chars[count++] = token;
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -139,7 +137,7 @@ start_process (void *status_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
   if (success) {
-    push_arguments (cmdline_chars, cnt, &if_.esp);
+    push_args (cmdline_chars, count, &if_.esp);
   }
   palloc_free_page (cmdline_chars);
 
@@ -149,7 +147,12 @@ start_process_end:
   /* Assign status.
      Note that pid and tid are one-to-one mapped.
   */
-  ps->pid = success ? (pid_t)(t->tid) : PID_ERROR;
+  if(success){
+      ps ->pid = (pid_t)(t ->tid);
+  }
+  else{
+      ps ->pid = PID_ERROR;
+  }
   t->p_status = ps;
 
   /* Wake up process_execute() */
@@ -598,21 +601,20 @@ install_page (void *upage, void *kpage, bool writable)
 
 /* Push the arguments to stack.*/
 static void
-push_arguments (const char* cmdline_chars[], int argc, void **esp)
+push_args (const char* cmdline[], int argc, void **esp)
 {
   int len = 0;
   void* argv_addr[argc];
   int i = 0;
   while(i < argc){
-    len = strlen(cmdline_chars[i]) + 1;
+    len = strlen(cmdline[i]) + 1;
     *esp = *esp - len;
-    memcpy(*esp, cmdline_chars[i], len);
+    memcpy(*esp, cmdline[i], len);
     argv_addr[i] = *esp;
     i++;
   }
 
   *esp = (void*)((unsigned int)(*esp) & 0xfffffffc);
-
   *esp -= 4;
   *((uint32_t*) *esp) = 0;
 
@@ -623,10 +625,8 @@ push_arguments (const char* cmdline_chars[], int argc, void **esp)
 
   *esp -= 4;
   *((void**) *esp) = (*esp + 4);
-
   *esp -= 4;
   *((int*) *esp) = argc;
-
   *esp -= 4;
   *((int*) *esp) = 0;
 }

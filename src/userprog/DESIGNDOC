@@ -29,7 +29,7 @@ fengzy@shanghaitech.edu.cn
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-static void push_arguments (const char *[], int cnt, void **esp); // Push arguments to the stack.
+static void push_args (const char *[], int argc, void **esp); // Push arguments to the stack.
 
 
 ---- ALGORITHMS ----
