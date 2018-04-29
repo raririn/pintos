@@ -67,12 +67,12 @@ process_execute (const char *file_name)
     }
     return PID_ERROR;
   }
-  p_status->pid = PID_INITIALIZING;
+  p_status->pid = -1; /* Undefined */
   p_status->intr = cmdline_copy;
   p_status->waiting = false;
   p_status->is_exited = false;
   p_status->is_parent_exited = false;
-  p_status->exitcode = -1; // undefined
+  p_status->exitcode = -1; /* Undefined */
 
   sema_init(&p_status->process_lock, 0);
   sema_init(&p_status->wait_lock, 0);
@@ -106,14 +106,14 @@ process_execute (const char *file_name)
 }
 
 /* A thread function that loads a user process and starts it
-   running. */
+   running. Note that a status structure instead is passed in. */
 static void
-start_process (void *pcb_)
+start_process (void *status_)
 {
   struct thread *t = thread_current();
-  struct process_status *pcb = pcb_;
+  struct process_status *ps = status_;
 
-  char *file_name = (char*) pcb->intr;
+  char *file_name = (char*) ps->intr;
   bool success = false;
 
   const char **cmdline_chars = (const char**) palloc_get_page(0);
@@ -146,14 +146,14 @@ start_process (void *pcb_)
 
 start_process_end:
 
-  /* Assign PCB.
+  /* Assign status.
      Note that pid and tid are one-to-one mapped.
   */
-  pcb->pid = success ? (pid_t)(t->tid) : PID_ERROR;
-  t->pcb = pcb;
+  ps->pid = success ? (pid_t)(t->tid) : PID_ERROR;
+  t->p_status = ps;
 
   /* Wake up process_execute() */
-  sema_up(&pcb->process_lock);
+  sema_up(&ps->process_lock);
 
   /* If load failed, quit. */
   if (!success)
@@ -181,24 +181,24 @@ start_process_end:
 int
 process_wait (tid_t child_tid)
 {
-  struct process_status *child_pcb = get_child(child_tid);
+  struct process_status *child_status = get_child(child_tid);
 
   /* If not found, return -1. */
-  if (child_pcb == NULL) {
+  if (child_status == NULL) {
     return -1;
   }
-  if (child_pcb->waiting) {
+  if (child_status->waiting) {
     return -1;
   }
-  child_pcb->waiting = true;
+  child_status->waiting = true;
 
-  if (!child_pcb->is_exited) {
-    sema_down(& (child_pcb->wait_lock));
+  if (!child_status->is_exited) {
+    sema_down(& (child_status->wait_lock));
   }
 
   remove_single_child_process(child_tid);
-  int temp = child_pcb->exitcode;
-  palloc_free_page(child_pcb);
+  int temp = child_status->exitcode;
+  palloc_free_page(child_status);
 
   return temp;
 }
@@ -211,7 +211,6 @@ process_exit (void)
   uint32_t *pd;
 
   process_close_file();
-
   remove_multiple_child_process();
 
   /* Release file for the executable */
@@ -221,11 +220,11 @@ process_exit (void)
   }
 
   /* Unblock the waiting process. */
-  sema_up (&current->pcb->wait_lock);
+  sema_up (&current->p_status->wait_lock);
 
   /* If the process still have parent, destory it, */
-  if (current->pcb->is_parent_exited == true) {
-    palloc_free_page (& current->pcb);
+  if (current->p_status->is_parent_exited == true) {
+    palloc_free_page (& current->p_status);
   }
 
   /* Destroy the current process's page directory and switch back
@@ -446,8 +445,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-
-  // do not close file here, postpone until it terminates
   return success;
 }
 
@@ -634,23 +631,23 @@ push_arguments (const char* cmdline_chars[], int argc, void **esp)
   *((int*) *esp) = 0;
 }
 
-/* Return the pcb of matching child. */
+/* Return the status of matching child. */
 struct process_status* 
 get_child(tid_t child_tid){
     struct thread *current = thread_current();
     struct list *child_list = &(current ->child_list);
-    struct process_status *child_pcb = NULL;
+    struct process_status *child_status = NULL;
     struct list_elem *e;
     if (!list_empty(child_list)) {
         for (e = list_front(child_list); e != list_end(child_list); e = list_next(e)) {
-            struct process_status *pcb = list_entry(e, struct process_status, elem);
-            if(pcb->pid == child_tid) {
-                child_pcb = pcb;
+            struct process_status *ps = list_entry(e, struct process_status, elem);
+            if(ps->pid == child_tid) {
+                child_status = ps;
                 break;
             }
         }
     }
-    return child_pcb;    
+    return child_status;    
 }
 
 void 
@@ -661,8 +658,8 @@ remove_single_child_process(tid_t child_tid)
     struct list_elem *e; /* Since the declaration cannot be made in for, e might not be used during the function call. */
     if (!list_empty(child_list)) {
         for (e = list_front(child_list); e != list_end(child_list); e = list_next(e)) {
-            struct process_status *pcb = list_entry(e, struct process_status, elem);
-            if(pcb->pid == child_tid) {
+            struct process_status *ps = list_entry(e, struct process_status, elem);
+            if(ps->pid == child_tid) {
                 break;
             }
         }
@@ -677,13 +674,13 @@ remove_multiple_child_process(void)
     struct list *child_list = &current->child_list;
     while (!list_empty(child_list)){
         struct list_elem *e = list_pop_front (child_list);
-        struct process_status *pcb;
-        pcb = list_entry(e, struct process_status, elem);
-        if (pcb->is_exited == true){
-            palloc_free_page(pcb);
+        struct process_status *ps;
+        ps = list_entry(e, struct process_status, elem);
+        if (ps->is_exited == true){
+            palloc_free_page(ps);
         } 
         else{
-            pcb->is_parent_exited = true;
+            ps->is_parent_exited = true;
         }
     }
 }

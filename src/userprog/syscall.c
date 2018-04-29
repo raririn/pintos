@@ -228,38 +228,51 @@ syscall_handler (struct intr_frame *f)
       sys_close(fd);
       break;
     }
+
+  default:
+    sys_exit(-1);
+    break;
+  }
 }
 
 
-void sys_halt(void) {
+void 
+sys_halt(void) 
+{
   shutdown_power_off();
 }
 
-void sys_exit(int status) {
-  printf("%s: exit(%d)\n", thread_current()->name, status);
-  struct process_status *pcb = thread_current()->pcb;
-  if(pcb != NULL) {
-    pcb->is_exited = true;
-    pcb->exitcode = status;
+void 
+sys_exit(int status) 
+{
+  struct process_status *ps = thread_current()->p_status;
+  if(ps != NULL) {
+    ps->is_exited = true;
+    ps->exitcode = status;
   }
-
+  printf("%s: exit(%d)\n", thread_current()->name, status);
   thread_exit();
 }
 
-pid_t sys_exec(const char *cmdline) {
+pid_t
+sys_exec(const char *cmdline)
+{
   check_user((const uint8_t*) cmdline);
-
   lock_acquire (&filesys_lock);
   pid_t pid = process_execute(cmdline);
   lock_release (&filesys_lock);
   return pid;
 }
 
-int sys_wait(pid_t pid) {
+int
+ sys_wait(pid_t pid)
+{
   return process_wait(pid);
 }
 
-bool sys_create(const char* filename, unsigned initial_size) {
+bool
+sys_create(const char* filename, unsigned initial_size)
+ {
   bool return_value;
   check_user((const uint8_t*) filename);
 
@@ -269,7 +282,9 @@ bool sys_create(const char* filename, unsigned initial_size) {
   return return_value;
 }
 
-bool sys_remove(const char* filename) {
+bool
+sys_remove(const char* filename)
+ {
   bool return_value;
   check_user((const uint8_t*) filename);
 
@@ -279,7 +294,9 @@ bool sys_remove(const char* filename) {
   return return_value;
 }
 
-int sys_open(const char* file) {
+int 
+sys_open(const char* file)
+ {
   check_user((const uint8_t*) file);
 
   struct file* file_opened;
@@ -311,7 +328,9 @@ int sys_open(const char* file) {
   return fd->id;
 }
 
-int sys_filesize(int fd) {
+int 
+sys_filesize(int fd)
+ {
   struct file_descriptor* file_d;
 
   lock_acquire (&filesys_lock);
@@ -322,40 +341,43 @@ int sys_filesize(int fd) {
     return -1;
   }
 
-  int ret = file_length(file_d->file);
+  int return_value = file_length(file_d->file);
   lock_release (&filesys_lock);
-  return ret;
+  return return_value;
 }
 
-void sys_seek(int fd, unsigned position) {
+void 
+sys_seek(int fd, unsigned position)
+ {
   lock_acquire (&filesys_lock);
   struct file_descriptor* file_d = find_file_desc(thread_current(), fd);
 
   if(file_d && file_d->file) {
     file_seek(file_d->file, position);
+    lock_release (&filesys_lock);
   }
-  else
-    return;
-
-  lock_release (&filesys_lock);
 }
 
-unsigned sys_tell(int fd) {
+unsigned 
+sys_tell(int fd)
+ {
   lock_acquire (&filesys_lock);
   struct file_descriptor* file_d = find_file_desc(thread_current(), fd);
 
-  unsigned ret;
+  unsigned return_value;
   if(file_d && file_d->file) {
-    ret = file_tell(file_d->file);
+    return_value = file_tell(file_d->file);
   }
   else
-    ret = -1;
+    return_value = -1;
 
   lock_release (&filesys_lock);
-  return ret;
+  return return_value;
 }
 
-void sys_close(int fd) {
+void 
+sys_close(int fd)
+ {
   lock_acquire (&filesys_lock);
   struct file_descriptor* file_d = find_file_desc(thread_current(), fd);
 
@@ -367,12 +389,14 @@ void sys_close(int fd) {
   lock_release (&filesys_lock);
 }
 
-int sys_read(int fd, void *buffer, unsigned size) {
+int 
+sys_read(int fd, void *buffer, unsigned size)
+{
   check_user((const uint8_t*) buffer);
   check_user((const uint8_t*) buffer + size - 1);
 
   lock_acquire (&filesys_lock);
-  int ret;
+  int return_value;
 
   if(fd == 0) {
     unsigned i;
@@ -382,44 +406,46 @@ int sys_read(int fd, void *buffer, unsigned size) {
         sys_exit(-1);
       }
     }
-    ret = size;
+    return_value = size;
   }
   else {
     struct file_descriptor* file_d = find_file_desc(thread_current(), fd);
     if(file_d && file_d->file) {
-      ret = file_read(file_d->file, buffer, size);
+      return_value = file_read(file_d->file, buffer, size);
     }
-    else // no such file or can't open
-      ret = -1;
+    else
+      return_value = -1;
   }
 
   lock_release (&filesys_lock);
-  return ret;
+  return return_value;
 }
 
-int sys_write(int fd, const void *buffer, unsigned size) {
+int 
+sys_write(int fd, const void *buffer, unsigned size)
+{
   check_user((const uint8_t*) buffer);
   check_user((const uint8_t*) buffer + size - 1);
 
   lock_acquire (&filesys_lock);
-  int ret;
+  int return_value;
 
   if(fd == 1) { 
     /* Write to system console: First to implement. */
     putbuf(buffer, size);
-    ret = size;
+    return_value = size;
   }
   else {
     struct file_descriptor* file_d = find_file_desc(thread_current(), fd);
     if(file_d && file_d->file) {
-      ret = file_write(file_d->file, buffer, size);
+      return_value = file_write(file_d->file, buffer, size);
     }
     else
-      ret = -1;
+      return_value = -1;
   }
 
   lock_release (&filesys_lock);
-  return ret;
+  return return_value;
 }
 
 static void
@@ -470,17 +496,33 @@ put_user (uint8_t *udst, uint8_t byte)
 /*  Read specific bytes of user memory with given starting address,
     write to a given address, return the bytes. If invalid memory 
     encountered, -1 is returned instread. */
-static int
+/*static int
 read_from_usermem(void *src, void *dst, size_t bytes)
 {
   int32_t value;
   size_t i;
   for(i=0; i<bytes; i++) {
     value = get_user(src + i);
-    if(value == -1) // segfault or invalid memory access
+    if(value == -1)
       fail_invalid_access();
 
     *(char*)(dst + i) = value & 0xff;
+  }
+  return (int)bytes;
+}*/
+
+static int
+read_from_usermem(void *src, void *dst, size_t bytes) {
+  int32_t val;
+  size_t i;
+  for(i=0; i<bytes; i++) {
+    if(get_user(src + i) == -1) {
+      fail_invalid_access();
+    }
+    else {
+      val = get_user(src + i);
+      *(char*)(dst + i) = val & 0xff;
+    }
   }
   return (int)bytes;
 }
@@ -489,18 +531,12 @@ read_from_usermem(void *src, void *dst, size_t bytes)
 static struct file_descriptor*
 find_file_desc(struct thread *t, int fd)
 {
-  ASSERT (t != NULL);
-
   if (fd < 3) {
     return NULL;
   }
-
   struct list_elem *e;
-
   if (! list_empty(&t->file_descriptors)) {
-    for(e = list_begin(&t->file_descriptors);
-        e != list_end(&t->file_descriptors); e = list_next(e))
-    {
+    for(e = list_begin(&t->file_descriptors); e != list_end(&t->file_descriptors); e = list_next(e)){
       struct file_descriptor *desc = list_entry(e, struct file_descriptor, elem);
       if(desc->id == fd) {
         return desc;
@@ -508,5 +544,5 @@ find_file_desc(struct thread *t, int fd)
     }
   }
 
-  return NULL; // not found
+  return NULL;
 }
