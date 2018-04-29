@@ -23,7 +23,7 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 static void push_arguments (const char *[], int cnt, void **esp);
 
 /* Starts a new thread running a user program loaded from
-   cmdline. The new thread may be scheduled (and may even exit)
+   FILENAME. The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. 
    NOTE: the argument is adjusted from the source file.
@@ -35,77 +35,74 @@ process_execute (const char *file_name)
   tid_t tid;
   char *cmdline_copy = NULL;
   char *save_ptr = NULL;
-  struct process_status *pcb = NULL;
+  struct process_status *p_status = NULL;
   
   /* Make a copy of file_name.
      Otherwise there's a race between the caller and load(). */
   cmdline_copy = palloc_get_page (0);
   if (cmdline_copy == NULL) {
-    goto process_execute_TID_ERROR;
+    return PID_ERROR;
   }
   strlcpy(cmdline_copy, file_name, PGSIZE);
 
   /* Obtain file name. */
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL) {
-    goto process_execute_TID_ERROR;
+    if (cmdline_copy){
+        palloc_free_page(cmdline_copy);
+    }
+    return PID_ERROR;
   }
   strlcpy(fn_copy, file_name, PGSIZE);
   fn_copy = strtok_r(fn_copy, " ", &save_ptr);
 
   /* Create a new thread to execute FILE_NAME. */
-
-  /* Create a pcb. */
-  pcb = palloc_get_page(0);
-  if (pcb == NULL) {
-    goto process_execute_TID_ERROR;
+  p_status = palloc_get_page(0);
+  if (p_status == NULL){
+    if (cmdline_copy){
+        palloc_free_page(cmdline_copy);
+    }
+    if (fn_copy){
+        palloc_free_page(fn_copy);
+    }
+    return PID_ERROR;
   }
+  p_status->pid = PID_INITIALIZING;
+  p_status->intr = cmdline_copy;
+  p_status->waiting = false;
+  p_status->is_exited = false;
+  p_status->is_parent_exited = false;
+  p_status->exitcode = -1; // undefined
 
-  /* Initialization, but notice that pid isn't determined yet. */
-  pcb->pid = PID_INITIALIZING;
-  pcb->cmdline = cmdline_copy;
-  pcb->waiting = false;
-  pcb->exited = false;
-  pcb->is_parent_exited = false;
-  pcb->exitcode = -1; // undefined
+  sema_init(&p_status->process_lock, 0);
+  sema_init(&p_status->wait_lock, 0);
 
-  sema_init(&pcb->process_lock, 0);
-  sema_init(&pcb->wait_lock, 0);
-
-  tid = thread_create (fn_copy, PRI_DEFAULT, start_process, pcb);
+  tid = thread_create (fn_copy, PRI_DEFAULT, start_process, p_status);
 
   if (tid == TID_ERROR){
-    goto process_execute_TID_ERROR;
+    if (cmdline_copy){
+        palloc_free_page(cmdline_copy);
+    }
+    if (fn_copy){
+        palloc_free_page(fn_copy);
+    }
+    if (p_status){
+        palloc_free_page(p_status);
+    }
+    return PID_ERROR;
   }
   /* Wait for start_process() */
-  sema_down(&pcb->process_lock);
+  sema_down(&p_status->process_lock);
   if(cmdline_copy){
     palloc_free_page (cmdline_copy);
   }
 
-  if(pcb->pid >= 0){
-    list_push_back (&(thread_current()->child_list), &(pcb->elem));
+  if(p_status->pid >= 0){
+    list_push_back (&(thread_current()->child_list), &(p_status->elem));
   }
 
   palloc_free_page (fn_copy);
-  return pcb->pid;
-
-process_execute_TID_ERROR:
-  /* Before raise the error, free all the copies used. */
-  if (cmdline_copy){
-      palloc_free_page(cmdline_copy);
-  }
-  if (file_name){
-      palloc_free_page(file_name);
-  }
-  if (fn_copy){
-      palloc_free_page(fn_copy);
-  }
-  if (pcb){
-      palloc_free_page(pcb);
-  }
-
-  return PID_ERROR;
+  return p_status->pid;
 }
 
 /* A thread function that loads a user process and starts it
@@ -116,7 +113,7 @@ start_process (void *pcb_)
   struct thread *t = thread_current();
   struct process_status *pcb = pcb_;
 
-  char *file_name = (char*) pcb->cmdline;
+  char *file_name = (char*) pcb->intr;
   bool success = false;
 
   const char **cmdline_chars = (const char**) palloc_get_page(0);
@@ -195,7 +192,7 @@ process_wait (tid_t child_tid)
   }
   child_pcb->waiting = true;
 
-  if (!child_pcb->exited) {
+  if (!child_pcb->is_exited) {
     sema_down(& (child_pcb->wait_lock));
   }
 
@@ -617,31 +614,24 @@ push_arguments (const char* cmdline_chars[], int argc, void **esp)
     i++;
   }
 
-  // word align
   *esp = (void*)((unsigned int)(*esp) & 0xfffffffc);
 
-  // last null
   *esp -= 4;
   *((uint32_t*) *esp) = 0;
 
-  // setting **esp with argvs
   for (i = argc - 1; i >= 0; i--) {
     *esp -= 4;
     *((void**) *esp) = argv_addr[i];
   }
 
-  // setting **argv (addr of stack, esp)
   *esp -= 4;
   *((void**) *esp) = (*esp + 4);
 
-  // setting argc
   *esp -= 4;
   *((int*) *esp) = argc;
 
-  // setting ret addr
   *esp -= 4;
   *((int*) *esp) = 0;
-
 }
 
 /* Return the pcb of matching child. */
@@ -689,7 +679,7 @@ remove_multiple_child_process(void)
         struct list_elem *e = list_pop_front (child_list);
         struct process_status *pcb;
         pcb = list_entry(e, struct process_status, elem);
-        if (pcb->exited == true){
+        if (pcb->is_exited == true){
             palloc_free_page(pcb);
         } 
         else{
@@ -705,7 +695,7 @@ process_close_file(void)
     struct list *fdlist = &current->file_descriptors;
     while (!list_empty(fdlist)) {
         struct list_elem *e = list_pop_front (fdlist);
-        struct file_desc *descriptor = list_entry(e, struct file_desc, elem);
+        struct file_descriptor *descriptor = list_entry(e, struct file_descriptor, elem);
         file_close(descriptor->file);
         palloc_free_page(descriptor);
     }

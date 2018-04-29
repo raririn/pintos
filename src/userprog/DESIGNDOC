@@ -1,0 +1,236 @@
+		     +--------------------------+
+       	       	     |		CS 140		|
+		     | PROJECT 2: USER PROGRAMS	|
+		     | 	   DESIGN DOCUMENT     	|
+		     +--------------------------+
+
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+yufy@shanghaitech.edu.cn
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+			   ARGUMENT PASSING
+			   ================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+static void push_arguments (const char *[], int cnt, void **esp); // Push arguments to the stack.
+
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe how you implemented argument parsing.  How do
+>> you arrange for the elements of argv[] to be in the right order?
+>> How do you avoid overflowing the stack page?
+
+
+1.  First token -> commend; Others -> arguments
+ 
+2. Keep decreasing esp pointer to setup the elements in order.
+ 
+3. Check the pointer always before using it.
+
+---- RATIONALE ----
+
+>> A3: Why does Pintos implement strtok_r() but not strtok()?
+
+save_ptr in strtok_r() is provided by the caller. In pintos, the address of arguments need to be put there for future use. strtok() cannot satisfy the need, and thus strtok_r() is used.
+
+>> A4: In Pintos, the kernel separates commands into a executable name
+>> and arguments.  In Unix-like systems, the shell does this
+>> separation.  Identify at least two advantages of the Unix approach.
+
+1) Higher kernal effiency
+2) Enabling further pre-process, e.g. executing multiple commands at the same time.
+
+			     SYSTEM CALLS
+			     ============
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+struct thread
+  {
+...
+#ifdef USERPROG
+    /* Owned by userprog/process.c. */
+    uint32_t *pagedir;
+    struct process_status *pcb;
+    struct list child_list;
+    struct list file_descriptors;
+    struct file *executing_file;
+#endif
+...
+  }; // Save the child process status of the thread
+  
+struct file_descriptor {
+  int id;
+  struct list_elem elem;
+  struct file* file;
+}; // File descriptor
+
+>> B2: Describe how file descriptors are associated with open files.
+>> Are file descriptors unique within the entire OS or just within a
+>> single process?
+
+1. File descriptors are one-to-one mapped to each file opened.
+
+2. The file descriptor is unique within the entire OS.
+
+---- ALGORITHMS ----
+
+>> B3: Describe your code for reading and writing user data from the
+>> kernel.
+
+Read:
+1) Check if buffer & buffer+size are valid. If not exit(-1).
+2) Acquire filesys lock.
+3) Check fd. 
+If it is STDOUT_FILENO, release the lock, return -1.
+If it is STDIN_FILENO, retrieve keys from standard input, release the lock, return -1.
+Else, find the file, use file_read(). Release the lock, return status.
+
+Write:
+1) Check if buffer is valid. If not exit(-1).
+2) Acquire filesys lock.
+Check fd.
+If it is STDOUT_FILENO, release the lock, return -1.
+If it is STDIN_FILENO, print the buffer to the console.
+Else, find the file, use file_write(). Release the lock, return status.
+
+>> B4: Suppose a system call causes a full page (4,096 bytes) of data
+>> to be copied from user space into the kernel.  What is the least
+>> and the greatest possible number of inspections of the page table
+>> (e.g. calls to pagedir_get_page()) that might result?  What about
+>> for a system call that only copies 2 bytes of data?  Is there room
+>> for improvement in these numbers, and how much?
+
+1. Least number should be 1, and greatest number should be 4096.
+2. LEast number should be 1, and greatest number should be 2.
+3. No room for improvement imo.
+
+>> B5: Briefly describe your implementation of the "wait" system call
+>> and how it interacts with process termination.
+
+1) Find child process, if not found return error.
+2) If it has a waiting parent, return error.
+Else set it status to waiting.
+3) Set up lock.
+4) Remove the child process.
+
+>> B6: Any access to user program memory at a user-specified address
+>> can fail due to a bad pointer value.  Such accesses must cause the
+>> process to be terminated.  System calls are fraught with such
+>> accesses, e.g. a "write" system call requires reading the system
+>> call number from the user stack, then each of the call's three
+>> arguments, then an arbitrary amount of user memory, and any of
+>> these can fail at any point.  This poses a design and
+>> error-handling problem: how do you best avoid obscuring the primary
+>> function of code in a morass of error-handling?  Furthermore, when
+>> an error is detected, how do you ensure that all temporarily
+>> allocated resources (locks, buffers, etc.) are freed?  In a few
+>> paragraphs, describe the strategy or strategies you adopted for
+>> managing these issues.  Give an example.
+
+1. Check before validating.  If anything invalid detected, terminate the process.
+2. Handle it in page fault exception. 
+e.g. attempting to write to 0xC0000000 (invalid):
+Check if it is valid in page fault exception handler, set the process return value to -1 if is (and it is here), terminate the process.
+
+---- SYNCHRONIZATION ----
+
+>> B7: The "exec" system call returns -1 if loading the new executable
+>> fails, so it cannot return before the new executable has completed
+>> loading.  How does your code ensure this?  How is the load
+>> success/failure status passed back to the thread that calls "exec"?
+
+1. By using a semaphore to prevent possible invalid operations.
+2. pid is not initialized in exec, so checking the pid should be enough to see if there is failure happening.
+
+>> B8: Consider parent process P with child process C.  How do you
+>> ensure proper synchronization and avoid race conditions when P
+>> calls wait(C) before C exits?  After C exits?  How do you ensure
+>> that all resources are freed in each case?  How about when P
+>> terminates without waiting, before C exits?  After C exits?  Are
+>> there any special cases?
+
+A semaphore and process status structure was used to ensure synchronization.
+1. P calls wait(C) before C exits:
+P waits until the semaphore gets down to continue.
+
+2. P calls wait(C) after C exits:
+C being freed. P can check C has exited and get its exitcode.
+
+3. P terminates without waiting before C exits:
+P being freed. C can check the status to find P has exited, and continue running.
+
+4. P terminates without waiting after C exits:
+P being freed.
+
+No special case out of handle imo.
+
+---- RATIONALE ----
+
+>> B9: Why did you choose to implement access to user memory from the
+>> kernel in the way that you did?
+
+
+
+>> B10: What advantages or disadvantages can you see to your design
+>> for file descriptors?
+
+Advantages:
+1) Kernel can always have knowledge of all open files.
+
+Disadvantages 
+1) The thread struct and kernel space usage might be over need. The user programs are thus limited.
+
+>> B11: The default tid_t to pid_t mapping is the identity mapping.
+>> If you changed it, what advantages are there to your approach?
+
+We didn't change it.
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+This assignment is way harder than proj1. It took indeed a long time.
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+Yes.
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+>> Any other comments?

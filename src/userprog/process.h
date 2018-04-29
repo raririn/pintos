@@ -20,24 +20,24 @@ void remove_single_child_process(tid_t child_tid);
 void remove_multiple_child_process(void);
 void process_close_file(void);
 
-/* PCB : see initialization at process_execute(). */
+/* A more detailed info of process. */
 struct process_status{
-  pid_t pid;                /* The pid of process */
-  const char* cmdline;      /* The command line of this process being executed */
-  struct list_elem elem;    /* element for thread.child_list */
-
-  bool waiting;             /* indicates whether parent process is waiting on this. */
-  bool exited;              /* indicates whether the process is done (exited). */
-  bool is_parent_exited;              /* indicates whether the parent process has terminated before. */
-  int32_t exitcode;         /* the exit code passed from exit(), when exited = true */
-
-  /* Synchronization */
+  /* Basic info */
+  pid_t pid;
+  const char* intr;      /* The instruction the process is running. */
+  bool waiting;             /* If there is a parent process waiting for it. */
+  bool is_exited;              /* If it has exited. */
+  bool is_parent_exited;    /* If its parent has exited. */
+  int32_t exitcode;         /* Get from process_exit() */
+  /* Shared info */
+  struct list_elem elem;    /* child_list element */
+  /* Locks */
   struct semaphore process_lock;    /* Lock between start_process() and process_execute() */
-  struct semaphore wait_lock;             /* the semaphore used for wait() : parent blocks until child exits */
+  struct semaphore wait_lock;       /* Lock in process_wait() */
 };
 
 /* File descriptor */
-struct file_desc {
+struct file_descriptor {
   int id;
   struct list_elem elem;
   struct file* file;
