@@ -29,7 +29,7 @@ fengzy@shanghaitech.edu.cn
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-static void push_args (const char *[], int argc, void **esp); // Push arguments to the stack.
+static void push_args (const char *cmdline[], int argc, void **esp); // Push arguments to the stack.
 
 
 ---- ALGORITHMS ----
@@ -163,7 +163,7 @@ Check if it is valid in page fault exception handler, set the process return val
 >> success/failure status passed back to the thread that calls "exec"?
 
 1. By using a semaphore to prevent possible invalid operations.
-2. pid is not initialized in exec, so checking the pid should be enough to see if there is failure happening.
+2. Error is returned is load fails.
 
 >> B8: Consider parent process P with child process C.  How do you
 >> ensure proper synchronization and avoid race conditions when P
