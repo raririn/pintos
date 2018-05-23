@@ -33,4 +33,4 @@ struct supplement_pagetable_entry{
 };
 
 
-#endif
+#endif /* vm/page.h */

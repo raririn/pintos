@@ -19,4 +19,4 @@ void frame_free (void *kpage);
 void *frame_evict (enum palloc_flags flags);
 void add_frame_to_table (void *frame_page, struct supplement_pagetable_entry *spe);
 
-#endif
+#endif /* vm/frame.h */

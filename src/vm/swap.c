@@ -19,16 +19,31 @@ swap_out(void *frame_page)
       PANIC("Need swap partition but no swap partition present!");
     }
     lock_acquire(&swap_lock);
-    size_t free_index = bitmap_scan_and_flip(swap_map, 0, 1, SWAP_FREE);
+    size_t swap_index = bitmap_scan_and_flip(swap_map, 0, 1, SWAP_FREE);
 
-    if (free_index == BITMAP_ERROR){
-      PANIC("Swap partition is full!");
-    }
+    ASSERT(swap_index != BITMAP_ERROR)
 
     size_t i;
     for (i = 0; i < SECTORS_PER_PAGE; i++){ 
-      block_write(swap_block, free_index * SECTORS_PER_PAGE + i, (uint8_t *) frame_page + i * BLOCK_SECTOR_SIZE);
+      block_write(swap_block, swap_index * SECTORS_PER_PAGE + i, frame_page + BLOCK_SECTOR_SIZE * i);
     }
     lock_release(&swap_lock);
-    return free_index;
+    return swap_index;
+}
+
+void
+swap_in(size_t swap_index, void* frame_page)
+{
+    ASSERT (frame_page >= PHYS_BASE);
+    if (bitmap_test(swap_map, swap_index) == false){
+        PANIC("Ilegal swap.");
+    }
+
+    lock_acquire(&swap_lock);
+    size_t i;
+    bitmap_flip(swap_map, swap_index);
+    for (i = 0; i < SECTORS_PER_PAGE; i++){
+        block_read(swap_block, swap_index * SECTORS_PER_PAGE + i, frame_page + BLOCK_SECTOR_SIZE * i);
+    }
+    lock_release(&swap_lock);
 }

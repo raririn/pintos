@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <hash.h>
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -101,6 +102,10 @@ struct thread
     struct list file_descriptors;
     struct file *executing_file;
 #endif
+
+    struct hash spt;
+    struct list mmap_list;
+    int mapid;
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */

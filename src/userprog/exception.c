@@ -1,10 +1,14 @@
-#include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include "userprog/exception.h"
 #include "userprog/gdt.h"
 #include "userprog/syscall.h"
+#include "threads/vaddr.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#ifdef VM
+#include "vm/page.h"
+#endif
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -151,7 +155,7 @@ page_fault (struct intr_frame *f)
 
   /* (3.1.5) a page fault in the kernel merely sets eax to 0xffffffff
    * and copies its former value into eip */
-  if(!user) { // kernel mode
+  if(!user) {
     f->eip = (void *) f->eax;
     f->eax = 0xffffffff;
     return;

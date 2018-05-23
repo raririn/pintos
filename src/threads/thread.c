@@ -14,6 +14,10 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
+#ifdef VM
+#include "vm/frame.h"
+#include "vm/swap.h"
+#endif
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -92,6 +96,10 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+
+#ifdef VM
+  frame_init();
+#endif
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -471,12 +479,16 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
 
-  #ifdef USERPROG
+#ifdef USERPROG
   t ->p_status = NULL;
   list_init(&t ->child_list);
   list_init(&t ->file_descriptors);
   t ->executing_file = NULL;
-  #endif
+#endif
+#ifdef VM
+  list_init(&t ->mmap_list);
+  t ->mapid = 0;
+#endif  
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
