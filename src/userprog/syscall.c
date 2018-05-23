@@ -14,10 +14,7 @@
 #include "threads/synch.h"
 #include "lib/kernel/list.h"
 
-#define MAX_ARGS 3
-#define US_VADDR_BTM ((void *) 0x08048000)
-
-static void syscall_handler (struct intr_frame *);
+static void syscall_handler (struct intr_frame *f);
 
 static void check_user (const uint8_t *uaddr);
 static int32_t get_user (const uint8_t *uaddr);
@@ -26,22 +23,7 @@ static int read_from_usermem (void *src, void *des, size_t bytes);
 
 static struct file_descriptor* find_file_desc(struct thread *, int fd);
 
-/* Syscall functions. */
-void sys_halt(void);
-void sys_exit(int);
-pid_t sys_exec(const char *cmdline);
-int sys_wait(pid_t pid);
-bool sys_create(const char* filename, unsigned initial_size);
-bool sys_remove(const char* filename);
-int sys_open(const char* file);
-int sys_filesize(int fd);
-int sys_read(int fd, void *buffer, unsigned size);
-int sys_write(int fd, const void *buffer, unsigned size);
-void sys_seek(int fd, unsigned position);
-unsigned sys_tell(int fd);
-void sys_close(int fd);
-
-struct lock filesys_lock;
+/*struct lock filesys_lock;*/
 
 /* 
     SYS_HALT     = 0                   
@@ -56,7 +38,11 @@ struct lock filesys_lock;
     SYS_WRITE    = 9              
     SYS_SEEK     = 10           
     SYS_TELL     = 11          
-    SYS_CLOSE    = 12           
+    SYS_CLOSE    = 12  
+
+    -- VM -- 
+    SYS_MMAP     = 13
+    SYS_MUNMAP   = 14        
 */
 
 void

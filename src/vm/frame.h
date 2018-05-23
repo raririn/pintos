@@ -1,22 +1,22 @@
 #ifndef VM_FRAME_H
 #define VM_FRAME_H
 
-#include <hash.h>
-#include "lib/kernel/hash.h"
-
+#include <stdint.h>
 #include "threads/synch.h"
 #include "threads/palloc.h"
+#include "vm/page.h"
 
+struct frametable_entry{
+    void *frame;
+    struct supplement_pagetable_entry *spe;
+    struct thread *thread;
+    struct list_elem elem;
+};
 
-/* Functions for Frame manipulation. */
+void frame_init(void);
+void *frame_allocate(enum palloc_flags flags, struct supplement_pagetable_entry *spe);
+void frame_free (void *kpage);
+void *frame_evict (enum palloc_flags flags);
+void add_frame_to_table (void *frame_page, struct supplement_pagetable_entry *spe);
 
-void vm_frame_init (void);
-void* vm_frame_allocate (enum palloc_flags flags, void *upage);
-
-void vm_frame_free (void*);
-void vm_frame_remove_entry (void*);
-
-void vm_frame_pin (void* kpage);
-void vm_frame_unpin (void* kpage);
-
-#endif /* vm/frame.h */
+#endif
