@@ -4,6 +4,10 @@
 #include "threads/thread.h"
 #include "threads/synch.h"
 
+#ifdef VM
+#include "vm/page.h"
+#endif
+
 typedef int pid_t;
 
 #define PID_ERROR         ((pid_t) -1)
@@ -20,6 +24,10 @@ struct process_status* get_child(tid_t child_tid);
 void remove_single_child_process(tid_t child_tid);
 void remove_multiple_child_process(void);
 void process_close_file(void);
+
+bool install_page(void *upage, void *kpage, bool writable);
+bool process_add_mmap(struct supplement_pagetable_entry *spe);
+void process_remove_mmap(int mapping);
 
 /* A more detailed info of process. */
 struct process_status{
@@ -42,6 +50,12 @@ struct file_descriptor {
   int id;
   struct list_elem elem;
   struct file* file;
+};
+
+struct mmap_file{
+    struct supplement_pagetable_entry *spe;
+    int mapid;
+    struct list_elem elem;
 };
 
 #endif /* userprog/process.h */

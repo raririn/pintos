@@ -164,11 +164,24 @@ page_fault (struct intr_frame *f)
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+  /* NEW */
+  bool success = false;
+  if (not_present && fault_addr > US_VADDR_BTM && is_user_vaddr(fault_addr)){
+      struct supplement_pagetable_entry *spe = get_spte(fault_addr);
+      if (spe){
+          success = load_page(spe);
+      }
+      else if (fault_addr >= f ->esp - 32){
+          success = grow_stack(fault_addr);
+      }
+  }
+  if (!success){
+    printf ("Page fault at %p: %s error %s page in %s context.\n",
+        fault_addr,
+        not_present ? "not present" : "rights violation",
+        write ? "writing" : "reading",
+        user ? "user" : "kernel");
+    kill (f);
+  }
 }
 

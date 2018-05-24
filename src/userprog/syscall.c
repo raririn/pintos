@@ -23,6 +23,10 @@ static int read_from_usermem (void *src, void *des, size_t bytes);
 
 static struct file_descriptor* find_file_desc(struct thread *, int fd);
 
+void unpin_ptr (void* vaddr);
+void unpin_string (void* str);
+void unpin_buffer (void* buffer, unsigned size);
+
 /*struct lock filesys_lock;*/
 
 /* 
@@ -90,6 +94,7 @@ syscall_handler (struct intr_frame *f)
 
       int return_value = sys_exec((const char*) cmdline);
       f->eax = (uint32_t) return_value;
+      unpin_string((void *) cmdline);
       break;
     }
 
@@ -114,6 +119,7 @@ syscall_handler (struct intr_frame *f)
 
       return_value = sys_create(filename, initial_size);
       f->eax = return_value;
+      unpin_string((void *)filename);
       break;
     }
 
@@ -138,6 +144,7 @@ syscall_handler (struct intr_frame *f)
 
       return_value = sys_open(filename);
       f->eax = return_value;
+      unpin_string((void *)filename);
       break;
     }
 
@@ -163,6 +170,7 @@ syscall_handler (struct intr_frame *f)
 
       return_value = sys_read(fd, buffer, size);
       f->eax = (uint32_t) return_value;
+      unpin_buffer((void *)buffer, (unsigned)size);
       break;
     }
 
@@ -179,6 +187,7 @@ syscall_handler (struct intr_frame *f)
 
       return_value = sys_write(fd, buffer, size);
       f->eax = (uint32_t) return_value;
+      unpin_buffer((void *)buffer, (unsigned)size);
       break;
     }
 
@@ -215,7 +224,26 @@ syscall_handler (struct intr_frame *f)
       break;
     }
 
+  case SYS_MMAP:
+    {
+      int fd;
+      void *addr;
+      read_from_usermem(f->esp + 4, &fd, sizeof(fd));
+      read_from_usermem(f->esp + 8, &addr, sizeof(addr));
+      f->eax = sys_mmap(fd, addr);
+
+      break;
+    }
+
+  case SYS_MUNMAP:
+    {
+      int fd;
+      read_from_usermem(f->esp + 4, &fd, sizeof(fd));
+      sys_munmap(fd);
+      break;
+    }
   default:
+    printf("default exit -1.\n");
     sys_exit(-1);
     break;
   }
@@ -233,7 +261,7 @@ sys_exit(int status)
 {
   struct process_status *ps = thread_current()->p_status;
   if(ps != NULL) {
-    ps->is_exited = true;
+    /*ps->is_exited = true; */
     ps->exitcode = status;
   }
   printf("%s: exit(%d)\n", thread_current()->name, status);
@@ -434,6 +462,48 @@ sys_write(int fd, const void *buffer, unsigned size)
   return return_value;
 }
 
+int 
+sys_mmap (int fd, void *addr)
+{
+  struct file *f = NULL;
+  struct file_descriptor *file_d = find_file_desc(thread_current(), fd);
+  struct file *old_file = file_d ->file;
+  if (!old_file || !is_user_vaddr(addr) || addr < US_VADDR_BTM ||
+      ((uint32_t) addr % PGSIZE) != 0)
+    {
+      return -1;
+    }
+  struct file *file = file_reopen(old_file);
+  if (!file || file_length(old_file) == 0)
+    {
+      return -1;
+    }
+  thread_current()->mapid++;
+  off_t ofs = 0;
+  uint32_t read_bytes = file_length(file);
+  while (read_bytes > 0)
+    {
+      uint32_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+      uint32_t page_zero_bytes = PGSIZE - page_read_bytes;
+      if (!add_mmap_to_page_table(file, ofs,
+				  addr, page_read_bytes, page_zero_bytes))
+	{
+	  sys_munmap(thread_current()->mapid);
+	  return -1;
+	}
+      read_bytes -= page_read_bytes;
+      ofs += page_read_bytes;
+      addr += PGSIZE;
+  }
+  return thread_current()->mapid;
+}
+
+void
+sys_munmap(int fd)
+{
+  process_remove_mmap(fd);
+}
+
 static void
 check_user (const uint8_t *uaddr)
 {
@@ -531,4 +601,35 @@ find_file_desc(struct thread *t, int fd)
   }
 
   return NULL;
+}
+
+
+void unpin_ptr (void* vaddr)
+{
+  struct supplement_pagetable_entry *spte = get_spte(vaddr);
+  if (spte)
+    {
+      spte->pinned = false;
+    }
+}
+
+void unpin_string (void* str)
+{
+  unpin_ptr(str);
+  while (* (char *) str != 0)
+    {
+      str = (char *) str + 1;
+      unpin_ptr(str);
+    }
+}
+
+void unpin_buffer (void* buffer, unsigned size)
+{
+  unsigned i;
+  char* local_buffer = (char *) buffer;
+  for (i = 0; i < size; i++)
+    {
+      unpin_ptr(local_buffer);
+      local_buffer++;
+    }
 }

@@ -1,10 +1,10 @@
-#include "userprog/process.h"
-#include "userprog/syscall.h"
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "userprog/process.h"
+#include "userprog/syscall.h"
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -14,9 +14,14 @@
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#ifdef VM
+#include "vm/page.h"
+#include "vm/frame.h"
+#endif
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -129,6 +134,9 @@ start_process (void *status_)
     cmdline_chars[count++] = token;
   }
 
+  /* Initialize pagetable. */
+  page_table_init(&thread_current() ->spt);
+
   /* Initialize interrupt frame and load executable. */
   struct intr_frame if_;
   memset (&if_, 0, sizeof if_);
@@ -229,6 +237,10 @@ process_exit (void)
   if (current->p_status->is_parent_exited == true) {
     palloc_free_page (& current->p_status);
   }
+
+  /* Do pagetable things. */
+  process_remove_mmap(-1);
+  page_table_destroy(&current ->spt);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -453,7 +465,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
 /* load() helpers. */
 
-static bool install_page (void *upage, void *kpage, bool writable);
+bool install_page (void *upage, void *kpage, bool writable);
 
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
@@ -531,12 +543,12 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
+      /* Get a page of memory.
       uint8_t *kpage = palloc_get_page (PAL_USER);
       if (kpage == NULL)
         return false;
 
-      /* Load this page. */
+      /* Load this page.
       if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
         {
           palloc_free_page (kpage);
@@ -544,16 +556,20 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         }
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
-      /* Add the page to the process's address space. */
+      /* Add the page to the process's address space.
       if (!install_page (upage, kpage, writable))
         {
           palloc_free_page (kpage);
           return false;
-        }
+        }  */
+      if (!add_file_to_page_table(file, ofs, upage, page_read_bytes, page_zero_bytes, writable)){
+          return false;
+      }
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
+      ofs += page_read_bytes;
       upage += PGSIZE;
     }
   return true;
@@ -564,7 +580,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp)
 {
-  uint8_t *kpage;
+  /*uint8_t *kpage;
   bool success = false;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
@@ -576,6 +592,12 @@ setup_stack (void **esp)
       else
         palloc_free_page (kpage);
     }
+  return success;*/
+  /* NEED NOTICE */
+  bool success = grow_stack( ((uint8_t*) PHYS_BASE) - PGSIZE );
+  if (success){
+      *esp = PHYS_BASE;
+  }
   return success;
 }
 
@@ -588,7 +610,7 @@ setup_stack (void **esp)
    with palloc_get_page().
    Returns true on success, false if UPAGE is already mapped or
    if memory allocation fails. */
-static bool
+bool
 install_page (void *upage, void *kpage, bool writable)
 {
   struct thread *t = thread_current ();
@@ -695,5 +717,67 @@ process_close_file(void)
         struct file_descriptor *descriptor = list_entry(e, struct file_descriptor, elem);
         file_close(descriptor->file);
         palloc_free_page(descriptor);
+    }
+}
+
+bool
+process_add_mmap(struct supplement_pagetable_entry *spe)
+{
+  struct mmap_file *mm = malloc(sizeof(struct mmap_file));
+  if (!mm)
+    {
+      return false;
+    }
+  mm->spe = spe;
+  mm->mapid = thread_current()->mapid;
+  list_push_back(&thread_current()->mmap_list, &mm->elem);
+  return true;
+}
+
+void
+process_remove_mmap(int mapping)
+{
+    struct thread *current = thread_current();
+    struct list_elem *e = list_begin(&current ->mmap_list);
+    struct file *f = NULL;
+    int close = 0;
+
+    struct list_elem *temp;
+    while (e != list_end(&current ->mmap_list)){
+        temp = list_next(e);
+        struct mmap_file *mm = list_entry(e, struct mmap_file, elem);
+        if (mm ->mapid == mapping || mapping == -1){
+            mm ->spe ->pinned = true;
+            if (mm ->spe ->loaded){
+                if (pagedir_is_dirty(current ->pagedir, mm ->spe ->upage)){
+                    lock_acquire(&filesys_lock);
+                    file_write_at(mm ->spe ->file, mm ->spe ->upage, mm ->spe ->readbytes, mm ->spe ->offset);
+                    lock_release(&filesys_lock);
+                }
+                frame_free(pagedir_get_page(current ->pagedir, mm ->spe ->upage));
+                pagedir_clear_page(current ->pagedir, mm ->spe ->upage);
+            }
+            if (mm ->spe ->type != 3){
+                hash_delete(&current ->spt, &mm ->spe ->elem);
+            }
+            list_remove(&mm ->elem);
+            if (mm ->mapid != close){
+                if (f){
+                    lock_acquire(&filesys_lock);
+                    file_close(f);
+                    lock_release(&filesys_lock);
+                }
+                close = mm ->mapid;
+                f = mm ->spe ->file;
+            }
+            free(mm ->spe);
+            free(mm);
+        }
+        e = temp;
+    }
+    if (f){
+        lock_acquire(&filesys_lock);
+        file_close(f);
+        lock_release(&filesys_lock);
     }
 }

@@ -8,6 +8,10 @@ swap_init(void)
     if (swap_block == NULL){
         PANIC("Can't get swap blcok.");
     }
+    swap_map = bitmap_create(block_size(swap_block)/SECTORS_PER_PAGE);
+    if (swap_map == NULL){
+        PANIC("Swap map is still NULL!");
+    }
     bitmap_set_all(swap_map, 0);  /* SWAP_FREE */
     lock_init(&swap_lock);
 }

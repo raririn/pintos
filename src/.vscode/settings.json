@@ -2,6 +2,7 @@
     "files.associations": {
         "syscall-nr.h": "c",
         "pagedir.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "process.h": "c"
     }
 }
