@@ -170,6 +170,7 @@ page_fault (struct intr_frame *f)
       struct supplement_pagetable_entry *spe = get_spte(fault_addr);
       if (spe){
           success = load_page(spe);
+          spe ->pinned = false;
       }
       else if (fault_addr >= f ->esp - 32){
           success = grow_stack(fault_addr);

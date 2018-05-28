@@ -7,10 +7,9 @@
 ---- GROUP ----
 
 >> Fill in the names and email addresses of your group members.
+yufy@shanghaitech.edu.cn
+fengzy@shanghaitech.edu.cn
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
 
 ---- PRELIMINARIES ----
 
@@ -30,24 +29,64 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+struct supplement_pagetable_entry{
+    uint8_t type;
+    void *upage;
+    bool loaded;
+    bool pinned;
+    struct hash_elem elem;
+
+    struct file *file;
+    off_t offset;
+    uint32_t readbytes;
+    uint32_t zerobytes;
+    bool writable;
+
+    swapindex_t swap_index;
+};
+
+
+struct frametable_entry{
+    void *frame;
+    struct supplement_pagetable_entry *spe;
+    struct thread *thread;
+    struct list_elem elem;
+};
+
 ---- ALGORITHMS ----
 
 >> A2: In a few paragraphs, describe your code for locating the frame,
 >> if any, that contains the data of a given page.
 
+1. Fetch supplement page table from hashed given address.
+2. call frame_alloc().
+3. Map the user virtual address to physical frame address using install_page().
+4. Check the type and do corresponding operation.
+
 >> A3: How does your code coordinate accessed and dirty bits between
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
+
+The user pointers are made sure
+to be legal in syscall.c and exception.c . The supplement page table is fetched using the address. Then the
+page is loaded in. Therefore, the kernel never uses the
+kernel virtual address for the memory, only the user virtual address
+indicated in the supplemental page table.
+
 
 ---- SYNCHRONIZATION ----
 
 >> A4: When two user processes both need a new frame at the same time,
 >> how are races avoided?
 
+By using a lock (frame_table_lock).
+
 ---- RATIONALE ----
 
 >> A5: Why did you choose the data structure(s) that you did for
 >> representing virtual-to-physical mappings?
+
+For clarity and easiness to use.
 
 		       PAGING TO AND FROM DISK
 		       =======================
@@ -58,18 +97,37 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+typedef uint32_t swapindex_t;
+
+struct lock swap_lock;
+struct block *swap_block;
+struct bitmap *swap_map;
+
 ---- ALGORITHMS ----
 
 >> B2: When a frame is required but none is free, some frame must be
 >> evicted.  Describe your code for choosing a frame to evict.
 
+For items in the list:
+1.	 If accessed: accessed <- false
+	 Else: swap out the page.
+		If dirty or it's a stack page:
+		write to file or swap out to disk
+		If swap out to disk:
+			scan the swap map
+2. loaded <- false. Remove it from the list.
+
 >> B3: When a process P obtains a frame that was previously used by a
 >> process Q, how do you adjust the page table (and any other data
 >> structures) to reflect the frame Q no longer has?
 
+The thread is set to current thread adding the frame and the supplement page table is set to the current thread is using the frame for.
+
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
 >> the page that faulted.
+
+The heuristic is set to 32 for that the PUSHA instruction can cause an access to 32bytes below sp.
 
 ---- SYNCHRONIZATION ----
 
@@ -78,21 +136,29 @@ FirstName LastName <email@domain.example>
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
+Using a pinned flag. The frame eviction will neglect entries with pinned is true.
+
 >> B6: A page fault in process P can cause another process Q's frame
 >> to be evicted.  How do you ensure that Q cannot access or modify
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
+
+When page fault, the process Q set the pinned flag to true. When p is being iterated, it will be ignored until Q exites the page fault.
 
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
 
+It's almost the same as the answer to B5. If Q is pinned, it cannot evict the frame.
+
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
 >> in user programs), or do you have a mechanism for "locking" frames
 >> into physical memory, or do you use some other design?  How do you
 >> gracefully handle attempted accesses to invalid virtual addresses?
+
+Check them during syscalls.
 
 ---- RATIONALE ----
 
@@ -103,6 +169,8 @@ FirstName LastName <email@domain.example>
 >> where your design falls along this continuum and why you chose to
 >> design it this way.
 
+Mainly for clarity and to avoid the complicated process of locking. 
+
 			 MEMORY MAPPED FILES
 			 ===================
 
@@ -112,14 +180,28 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+struct mmap_file{
+    struct supplement_pagetable_entry *spe;
+    int mapid;
+    struct list_elem elem;
+};
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how memory mapped files integrate into your virtual
 >> memory subsystem.  Explain how the page fault and eviction
 >> processes differ between swap pages and other pages.
 
+MMAP files are lazy-loaded as executable files, but they must be written back to the file during eviction and munmap. In munmap, the thread
+must iterate through its mmap_list, write dirty pages back to disk,
+close the mmap-ed file and do other cleanup. During a process exit, all
+mmap-ed files are munmapped by default, while other pages are simply
+left behind.
+
 >> C3: Explain how you determine whether a new file mapping overlaps
 >> any existing segment.
+
+By using the hash table (in thread structure).
 
 ---- RATIONALE ----
 
@@ -129,6 +211,8 @@ FirstName LastName <email@domain.example>
 >> that much of their implementation can be shared.  Explain why your
 >> implementation either does or does not share much of the code for
 >> the two situations.
+
+The process is almost the same when the files are loaded. The difference is whether they will be written to file. So in my implementation, much of the code are shared in the two situations.
 
 			   SURVEY QUESTIONS
 			   ================
@@ -141,6 +225,8 @@ the quarter.
 
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
+
+Yes. Proj3 is too hard overall. It takes me too long to debug.
 
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?

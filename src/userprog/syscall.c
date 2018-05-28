@@ -22,6 +22,7 @@ static bool put_user (uint8_t *udst, uint8_t byte);
 static int read_from_usermem (void *src, void *des, size_t bytes);
 
 static struct file_descriptor* find_file_desc(struct thread *, int fd);
+void mmap_getarg(struct intr_frame *f, int *arg, int n);
 
 void unpin_ptr (void* vaddr);
 void unpin_string (void* str);
@@ -69,6 +70,7 @@ static void
 syscall_handler (struct intr_frame *f)
 {
   int syscall_ID; /* See <syscall-nr.h> for ID reference. */
+  int arg[MAX_ARGS];
   read_from_usermem(f->esp, &syscall_ID, sizeof(syscall_ID));
   check_valid_ptr((const void*)f->esp, f->esp);
 
@@ -233,13 +235,9 @@ syscall_handler (struct intr_frame *f)
 
   case SYS_MMAP:
     {
-      int fd;
-      void *addr;
-      read_from_usermem(f->esp + 4, &fd, sizeof(fd));
-      read_from_usermem(f->esp + 8, &addr, sizeof(addr));
-      f->eax = sys_mmap(fd, addr);
-
-      break;
+	mmap_getarg(f, &arg[0], 2);
+	f->eax = sys_mmap(arg[0], (void *) arg[1]);
+	break;
     }
 
   case SYS_MUNMAP:
@@ -473,32 +471,28 @@ sys_write(int fd, const void *buffer, unsigned size)
 int 
 sys_mmap (int fd, void *addr)
 {
-  struct file *f = NULL;
+  /*if (fd <= 1){
+      return -1;
+  }*/
   struct file_descriptor *file_d = find_file_desc(thread_current(), fd);
   struct file *old_file = file_d ->file;
-  if (!old_file || !is_user_vaddr(addr) || addr < US_VADDR_BTM ||
-      ((uint32_t) addr % PGSIZE) != 0)
-    {
+  if (!old_file || !is_user_vaddr(addr) || addr < US_VADDR_BTM || ((uint32_t) addr % PGSIZE) != 0){
       return -1;
     }
   struct file *file = file_reopen(old_file);
-  if (!file || file_length(old_file) == 0)
-    {
+  if (!file || file_length(old_file) == 0){
       return -1;
     }
   thread_current()->mapid++;
   off_t ofs = 0;
   uint32_t read_bytes = file_length(file);
-  while (read_bytes > 0)
-    {
+  while (read_bytes > 0){
       uint32_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       uint32_t page_zero_bytes = PGSIZE - page_read_bytes;
-      if (!add_mmap_to_page_table(file, ofs,
-				  addr, page_read_bytes, page_zero_bytes))
-	{
-	  sys_munmap(thread_current()->mapid);
-	  return -1;
-	}
+      if (!add_mmap_to_page_table(file, ofs, addr, page_read_bytes, page_zero_bytes)){
+	    sys_munmap(thread_current()->mapid);
+	    return -1;
+	  }
       read_bytes -= page_read_bytes;
       ofs += page_read_bytes;
       addr += PGSIZE;
@@ -560,26 +554,12 @@ put_user (uint8_t *udst, uint8_t byte)
 /*  Read specific bytes of user memory with given starting address,
     write to a given address, return the bytes. If invalid memory 
     encountered, -1 is returned instread. */
-/*static int
-read_from_usermem(void *src, void *dst, size_t bytes)
-{
-  int32_t value;
-  size_t i;
-  for(i=0; i<bytes; i++) {
-    value = get_user(src + i);
-    if(value == -1)
-      fail_invalid_access();
-
-    *(char*)(dst + i) = value & 0xff;
-  }
-  return (int)bytes;
-}*/
-
 static int
 read_from_usermem(void *src, void *dst, size_t bytes) {
   int32_t val;
   size_t i;
-  for(i=0; i<bytes; i++) {
+  for(i=0; i<bytes; i++){
+    /*check_valid_ptr((const void*)( (int *)src - 4 + i + 1 ), src );*/
     if(get_user(src + i) == -1) {
       fail_invalid_access();
     }
@@ -589,6 +569,17 @@ read_from_usermem(void *src, void *dst, size_t bytes) {
     }
   }
   return (int)bytes;
+}
+
+void
+mmap_getarg(struct intr_frame *f, int *arg, int n){
+    int i;
+    int *ptr;
+    for (i = 0; i < n; i++){
+        ptr = (int *) f->esp + i + 1;
+        check_valid_ptr((const void *)ptr, f->esp);
+        arg[i] = *ptr;
+    }
 }
 
 
@@ -616,8 +607,7 @@ void
 unpin_ptr (void* vaddr)
 {
   struct supplement_pagetable_entry *spte = get_spte(vaddr);
-  if (spte)
-    {
+  if (spte){
       spte->pinned = false;
     }
 }
@@ -626,8 +616,7 @@ void
 unpin_string (void* str)
 {
   unpin_ptr(str);
-  while (* (char *) str != 0)
-    {
+  while (* (char *) str != 0){
       str = (char *) str + 1;
       unpin_ptr(str);
     }
@@ -637,11 +626,10 @@ void
 unpin_buffer (void* buffer, unsigned size)
 {
   unsigned i;
-  char* local_buffer = (char *) buffer;
-  for (i = 0; i < size; i++)
-    {
-      unpin_ptr(local_buffer);
-      local_buffer++;
+  char* localbuf = (char *) buffer;
+  for (i = 0; i < size; i++){
+      unpin_ptr(localbuf);
+      localbuf++;
     }
 }
 

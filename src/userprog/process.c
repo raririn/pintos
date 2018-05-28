@@ -725,8 +725,7 @@ bool
 process_add_mmap(struct supplement_pagetable_entry *spe)
 {
   struct mmap_file *mm = malloc(sizeof(struct mmap_file));
-  if (!mm)
-    {
+  if (!mm){
       return false;
     }
   mm->spe = spe;

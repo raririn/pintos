@@ -42,7 +42,6 @@ frame_free (void *kpage)
 {
     lock_acquire(&frame_table_lock);
 
-
     ASSERT (is_kernel_vaddr(kpage))
     struct list_elem *e;
     for (e = list_begin(&frame_table); e != list_end(&frame_table); e = list_next(e)){
