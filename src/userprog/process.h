@@ -19,7 +19,7 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
 
-static void push_args (const char *cmdline[], int argc, void **esp);
+void push_args (const char *cmdline[], int argc, void **esp);
 struct process_status* get_child(tid_t child_tid);
 void remove_single_child_process(tid_t child_tid);
 void remove_multiple_child_process(void);

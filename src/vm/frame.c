@@ -77,7 +77,7 @@ frame_evict (enum palloc_flags flags)
                 if (pagedir_is_dirty(pd, upage) || fe ->spe ->type == 1){
                     if (fe ->spe ->type != 2){
                         fe ->spe ->type = 1;
-                        /*fe ->spe ->swap_index = swap_out(fe ->frame); Remined to be modified*/
+                        fe ->spe ->swap_index = swap_out(fe ->frame);
                     }
                     else{
                         lock_acquire(&filesys_lock);

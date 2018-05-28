@@ -6,10 +6,12 @@ swap_init(void)
     ASSERT (SECTORS_PER_PAGE > 0);
     swap_block = block_get_role(BLOCK_SWAP);
     if (swap_block == NULL){
+        return;
         PANIC("Can't get swap blcok.");
     }
     swap_map = bitmap_create(block_size(swap_block)/SECTORS_PER_PAGE);
     if (swap_map == NULL){
+        return;
         PANIC("Swap map is still NULL!");
     }
     bitmap_set_all(swap_map, 0);  /* SWAP_FREE */
@@ -38,9 +40,12 @@ swap_out(void *frame_page)
 void
 swap_in(size_t swap_index, void* frame_page)
 {
-    ASSERT (frame_page >= PHYS_BASE);
+    /* ASSERT (frame_page >= PHYS_BASE); */
     if (bitmap_test(swap_map, swap_index) == false){
         PANIC("Ilegal swap.");
+    }
+    if (!swap_block || !swap_map){
+        return;
     }
 
     lock_acquire(&swap_lock);

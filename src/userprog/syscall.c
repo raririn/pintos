@@ -70,6 +70,7 @@ syscall_handler (struct intr_frame *f)
 {
   int syscall_ID; /* See <syscall-nr.h> for ID reference. */
   read_from_usermem(f->esp, &syscall_ID, sizeof(syscall_ID));
+  check_valid_ptr((const void*)f->esp, f->esp);
 
   switch (syscall_ID) {
   case SYS_HALT:
@@ -91,6 +92,7 @@ syscall_handler (struct intr_frame *f)
     {
       void* cmdline;
       read_from_usermem(f->esp + 4, &cmdline, sizeof(cmdline));
+      check_valid_str((const void *)cmdline, f->esp);
 
       int return_value = sys_exec((const char*) cmdline);
       f->eax = (uint32_t) return_value;
@@ -116,6 +118,7 @@ syscall_handler (struct intr_frame *f)
 
       read_from_usermem(f->esp + 4, &filename, sizeof(filename));
       read_from_usermem(f->esp + 8, &initial_size, sizeof(initial_size));
+      check_valid_str((const void*)filename, f->esp);
 
       return_value = sys_create(filename, initial_size);
       f->eax = return_value;
@@ -129,6 +132,7 @@ syscall_handler (struct intr_frame *f)
       bool return_value;
 
       read_from_usermem(f->esp + 4, &filename, sizeof(filename));
+      check_valid_str((const void*) filename, f->esp);
 
       return_value = sys_remove(filename);
       f->eax = return_value;
@@ -141,6 +145,7 @@ syscall_handler (struct intr_frame *f)
       int return_value;
 
       read_from_usermem(f->esp + 4, &filename, sizeof(filename));
+      check_valid_str((const void*) filename, f->esp);
 
       return_value = sys_open(filename);
       f->eax = return_value;
@@ -167,6 +172,7 @@ syscall_handler (struct intr_frame *f)
       read_from_usermem(f->esp + 4, &fd, sizeof(fd));
       read_from_usermem(f->esp + 8, &buffer, sizeof(buffer));
       read_from_usermem(f->esp + 12, &size, sizeof(size));
+      check_valid_buffer((void*) buffer, (unsigned) size, f->esp, true);
 
       return_value = sys_read(fd, buffer, size);
       f->eax = (uint32_t) return_value;
@@ -184,6 +190,7 @@ syscall_handler (struct intr_frame *f)
       read_from_usermem(f->esp + 4, &fd, sizeof(fd));
       read_from_usermem(f->esp + 8, &buffer, sizeof(buffer));
       read_from_usermem(f->esp + 12, &size, sizeof(size));
+      check_valid_buffer((void*) buffer, (unsigned) size, f->esp, false);
 
       return_value = sys_write(fd, buffer, size);
       f->eax = (uint32_t) return_value;
@@ -242,6 +249,7 @@ syscall_handler (struct intr_frame *f)
       sys_munmap(fd);
       break;
     }
+  unpin_ptr(f ->esp);
   default:
     printf("default exit -1.\n");
     sys_exit(-1);
@@ -604,7 +612,8 @@ find_file_desc(struct thread *t, int fd)
 }
 
 
-void unpin_ptr (void* vaddr)
+void 
+unpin_ptr (void* vaddr)
 {
   struct supplement_pagetable_entry *spte = get_spte(vaddr);
   if (spte)
@@ -613,7 +622,8 @@ void unpin_ptr (void* vaddr)
     }
 }
 
-void unpin_string (void* str)
+void 
+unpin_string (void* str)
 {
   unpin_ptr(str);
   while (* (char *) str != 0)
@@ -623,7 +633,8 @@ void unpin_string (void* str)
     }
 }
 
-void unpin_buffer (void* buffer, unsigned size)
+void 
+unpin_buffer (void* buffer, unsigned size)
 {
   unsigned i;
   char* local_buffer = (char *) buffer;
@@ -632,4 +643,51 @@ void unpin_buffer (void* buffer, unsigned size)
       unpin_ptr(local_buffer);
       local_buffer++;
     }
+}
+
+struct supplement_pagetable_entry *
+check_valid_ptr(const void *vaddr, void* esp)
+{
+  if(!is_user_vaddr(vaddr) || vaddr < US_VADDR_BTM){
+      sys_exit(-1);
+  }
+  bool load = false;
+  struct supplement_pagetable_entry *spe = get_spte((void *) vaddr);
+  if (spe){
+      load_page(spe);
+      load = spe ->loaded;
+  }
+  else if (vaddr >= esp - 32){
+      load = grow_stack((void *)vaddr);
+  }
+  if (!load){
+      sys_exit(-1);
+  }
+  return spe;
+}
+
+void 
+check_valid_buffer(void* buffer, unsigned size, void* esp, bool write)
+{
+  unsigned i;
+  char* localbuf = (char *)buffer;
+  for (i = 0; i < size; i++){
+      struct supplement_pagetable_entry *spe = check_valid_ptr((const void*) localbuf, esp);
+      if (spe && write){
+          if (! spe ->writable){
+              sys_exit(-1);
+          }
+      }
+      localbuf++;
+  }
+}
+
+void
+check_valid_str(const void* str, void* esp)
+{
+  check_valid_ptr(str, esp);
+  while(* (char*)str != 0){
+      str = (char*) str + 1;
+      check_valid_ptr(str, esp);
+  }
 }

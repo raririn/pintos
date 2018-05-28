@@ -26,6 +26,10 @@ void sys_close(int fd);
 int sys_mmap(int fd, void *addr);
 void sys_munmap(int fd);
 
+struct supplement_pagetable_entry * check_valid_ptr(const void *vaddr, void* esp);
+void check_valid_buffer(void* buffer, unsigned size, void* esp, bool write);
+void check_valid_str(const void* str, void* esp);
+
 struct lock filesys_lock;
 
 #endif /* userprog/syscall.h */
