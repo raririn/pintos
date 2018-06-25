@@ -1,9 +1,6 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
-#include "threads/interrupt.h"
-#include "threads/thread.h"
-
 #include <user/syscall.h>
 #include "devices/input.h"
 #include "devices/shutdown.h"
@@ -14,6 +11,7 @@
 #include "threads/interrupt.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
+#include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
@@ -34,10 +32,9 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  int syscall_ID;
   int arg[MAX_ARGS];
-  read_from_usermem(f->esp, &syscall_ID, sizeof(syscall_ID));
-  switch (syscall_ID)
+  int esp = user_to_kernel_ptr((const void*) f->esp);
+  switch (* (int *) esp)
     {
     case SYS_HALT:
       {
@@ -389,76 +386,6 @@ void close (int fd)
   process_close_file(fd);
 }
 
-static void
-check_user (const uint8_t *uaddr)
-{
-  /* God, it seems it important to call that assembly code before calling fail_invalid_access
-     But I DON'T KNOW WHY */
-  if(get_user (uaddr) == -1){
-      fail_invalid_access();
-  }
-}
-
-/* Reads a byte at user virtual address UADDR.
-   UADDR must be below PHYS_BASE.
-   Returns the byte value if successful, -1 if a segfault
-   occurred. */
-static int32_t
-get_user (const uint8_t *uaddr)
-{
-  /* If UADDR >= PHYS_BASE. then there is a segfault. */
-  if (! ((void*)uaddr < PHYS_BASE)){
-    return -1;
-  }
-
-  int result;
-  asm ("movl $1f, %0; movzbl %1, %0; 1:"
-      : "=&a" (result) : "m" (*uaddr));
-  return result;
-}
-
-/* Writes BYTE to user address UDST.
-   UDST must be below PHYS_BASE.
-   Returns true if successful, false if a segfault occurred. */
-static bool
-put_user (uint8_t *udst, uint8_t byte)
-{
-  /* UDST >= PHYS_BASE => Segfault */
-  if (! ((void*)udst < PHYS_BASE)) {
-    return false;
-  }
-
-  int error_code;
-  asm ("movl $1f, %0; movb %b2, %1; 1:"
-      : "=&a" (error_code), "=m" (*udst) : "q" (byte));
-  return error_code != -1;
-}
-
-/*  Read specific bytes of user memory with given starting address,
-    write to a given address, return the bytes. If invalid memory 
-    encountered, -1 is returned instread. */
-static int
-read_from_usermem(void *src, void *dst, size_t bytes) {
-  int32_t val;
-  size_t i;
-  for(i=0; i<bytes; i++){
-    /*check_valid_ptr((const void*)( (int *)src - 4 + i + 1 ), src );*/
-    if(get_user(src + i) == -1) {
-      fail_invalid_access();
-    }
-    else {
-      val = get_user(src + i);
-      *(char*)(dst + i) = val & 0xff;
-    }
-  }
-  return (int)bytes;
-}
-
-
-
-
-
-
 void check_valid_ptr (const void *vaddr)
 {
   if (!is_user_vaddr(vaddr) || vaddr < USER_VADDR_BOTTOM)
@@ -564,4 +491,24 @@ void check_valid_string (const void* str)
     {
       str = (char *) str + 1;
     }
+}
+
+/*  Read specific bytes of user memory with given starting address,
+    write to a given address, return the bytes. If invalid memory 
+    encountered, -1 is returned instread. */
+static int
+read_from_usermem(void *src, void *dst, size_t bytes) {
+  int32_t val;
+  size_t i;
+  for(i=0; i<bytes; i++){
+    /*check_valid_ptr((const void*)( (int *)src - 4 + i + 1 ), src );*/
+    if(get_user(src + i) == -1) {
+      exit(-1);
+    }
+    else {
+      val = get_user(src + i);
+      *(char*)(dst + i) = val & 0xff;
+    }
+  }
+  return (int)bytes;
 }
