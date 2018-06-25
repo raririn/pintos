@@ -4,7 +4,9 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include <hash.h>
+
+// Needed for timer_sleep()
+struct list sleep_list;
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -97,18 +99,31 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-    struct process_status *p_status;
-    struct list child_list;
-    struct list file_descriptors;
-    struct file *executing_file;
 #endif
-
-    struct hash spt;
-    struct list mmap_list;
-    int mapid;
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+
+    // Needed to keep track of locks thread holds
+    struct list lock_list;
+
+    // Needed for file system sys calls
+    struct list file_list;
+    int fd;
+
+    // Needed for wait / exec sys calls
+    struct list child_list;
+    tid_t parent;
+    // Points to child_process struct in parent's child list
+    struct child_process* cp;
+
+    // Needed for denying writes to executables
+    struct file* executable;
+
+    // Needed for timer_sleep()
+    int64_t ticks;
+    
+    struct dir *cwd;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -146,5 +161,12 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+bool thread_alive (int pid);
+void release_locks (void);
+
+bool cmp_ticks (const struct list_elem *a,
+		const struct list_elem *b,
+		void *aux UNUSED);
 
 #endif /* threads/thread.h */

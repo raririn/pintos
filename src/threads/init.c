@@ -31,9 +31,6 @@
 #else
 #include "tests/threads/tests.h"
 #endif
-#ifdef VM
-#include "vm/swap.h"
-#endif
 #ifdef FILESYS
 #include "devices/block.h"
 #include "devices/ide.h"
@@ -398,7 +395,6 @@ locate_block_devices (void)
   locate_block_device (BLOCK_SCRATCH, scratch_bdev_name);
 #ifdef VM
   locate_block_device (BLOCK_SWAP, swap_bdev_name);
-  swap_init();  /* ADDED */
 #endif
 }
 

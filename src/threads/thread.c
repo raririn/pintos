@@ -4,25 +4,27 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "filesys/directory.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/process.h"
-#endif
-#ifdef VM
-#include "vm/frame.h"
-#include "vm/swap.h"
+#include "userprog/syscall.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
+
+#define MIN_FD 2
+#define NO_PARENT -1
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -96,16 +98,14 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
-
-#ifdef VM
-  frame_init();
-#endif
+  list_init (&sleep_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+  initial_thread->cwd = NULL;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -214,6 +214,19 @@ thread_create (const char *name, int priority,
 
   intr_set_level (old_level);
 
+  // Add child process to child list
+  t->parent = thread_tid();
+  struct child_process *cp = add_child_process(t->tid);
+  t->cp = cp;
+  if (thread_current()->cwd)
+    {
+      t->cwd = dir_reopen(thread_current()->cwd);
+    }
+  else
+    {
+      t->cwd = NULL;
+    }
+
   /* Add to run queue. */
   thread_unblock (t);
 
@@ -306,6 +319,7 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
+  release_locks();
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
@@ -479,16 +493,16 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
 
-#ifdef USERPROG
-  t ->p_status = NULL;
-  list_init(&t ->child_list);
-  list_init(&t ->file_descriptors);
-  t ->executing_file = NULL;
-#endif
-#ifdef VM
-  list_init(&t ->mmap_list);
-  t ->mapid = 0;
-#endif  
+  t->executable = NULL;
+
+  list_init(&t->lock_list);
+
+  list_init(&t->file_list);
+  t->fd = MIN_FD;
+
+  list_init(&t->child_list);
+  t->cp = NULL;
+  t->parent = NO_PARENT;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -604,3 +618,47 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+bool thread_alive (int pid)
+{
+  struct list_elem *e;
+
+  for (e = list_begin (&all_list); e != list_end (&all_list);
+       e = list_next (e))
+    {
+      struct thread *t = list_entry (e, struct thread, allelem);
+      if (t->tid == pid)
+	{
+	  return true;
+	}
+    }
+  return false;
+}
+
+void release_locks (void)
+{
+  struct thread *t = thread_current();
+  struct list_elem *next, *e = list_begin(&t->lock_list);
+
+  while (e != list_end (&t->lock_list))
+    {
+      next = list_next(e);
+      struct lock *l = list_entry (e, struct lock, elem);
+      lock_release(l);
+      list_remove(&l->elem);
+      e = next;
+    }
+}
+
+bool cmp_ticks (const struct list_elem *a,
+		const struct list_elem *b,
+		void *aux UNUSED)
+{
+  struct thread *ta = list_entry(a, struct thread, elem);
+  struct thread *tb = list_entry(b, struct thread, elem);
+  if (ta->ticks < tb->ticks)
+    {
+      return true;
+    }
+  return false;
+}

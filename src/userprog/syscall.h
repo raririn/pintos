@@ -1,35 +1,37 @@
 #ifndef USERPROG_SYSCALL_H
 #define USERPROG_SYSCALL_H
 
-#include "userprog/process.h"
+#include "threads/synch.h"
+
 
 #define MAX_ARGS 3
-#define US_VADDR_BTM ((void *) 0x08048000)
+#define USER_VADDR_BOTTOM ((void *) 0x08048000)
+
+#define CLOSE_ALL -1
+#define ERROR -1
+
+#define NOT_LOADED 0
+#define LOAD_SUCCESS 1
+#define LOAD_FAIL 2
+
+struct child_process {
+  int pid;
+  int load;
+  bool wait;
+  bool exit;
+  int status;
+  struct semaphore load_sema;
+  struct semaphore exit_sema;
+  struct list_elem elem;
+};
+
+struct child_process* add_child_process (int pid);
+struct child_process* get_child_process (int pid);
+void remove_child_process (struct child_process *cp);
+void remove_child_processes (void);
+
+void process_close_file (int fd);
 
 void syscall_init (void);
-
-
-/* Syscall functions. */
-void sys_halt(void);
-void sys_exit(int);
-pid_t sys_exec(const char *cmdline);
-int sys_wait(pid_t pid);
-bool sys_create(const char* filename, unsigned initial_size);
-bool sys_remove(const char* filename);
-int sys_open(const char* file);
-int sys_filesize(int fd);
-int sys_read(int fd, void *buffer, unsigned size);
-int sys_write(int fd, const void *buffer, unsigned size);
-void sys_seek(int fd, unsigned position);
-unsigned sys_tell(int fd);
-void sys_close(int fd);
-int sys_mmap(int fd, void *addr);
-void sys_munmap(int fd);
-
-struct supplement_pagetable_entry * check_valid_ptr(const void *vaddr, void* esp);
-void check_valid_buffer(void* buffer, unsigned size, void* esp, bool write);
-void check_valid_str(const void* str, void* esp);
-
-struct lock filesys_lock;
 
 #endif /* userprog/syscall.h */
