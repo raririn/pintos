@@ -3,11 +3,11 @@
 
 #include "threads/thread.h"
 struct process_file {
-  struct file *file;
-  struct dir *dir;
-  bool isdir;
-  int fd;
-  struct list_elem elem;
+    struct file *file;
+    struct dir *dir;
+    bool isdir;
+    int fd;
+    struct list_elem elem;
 };
 int process_add_dir (struct dir *d);
 int process_add_file (struct file *f);

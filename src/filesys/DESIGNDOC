@@ -8,7 +8,8 @@
 
 >> Fill in the names and email addresses of your group members.
 
-Ryan Wilson <rtwilson@stanford.edu>
+yufy@shanghaitech.edu.cn
+fengzy@shanghaitech.edu.cn
 
 ---- PRELIMINARIES ----
 
@@ -19,19 +20,6 @@ Ryan Wilson <rtwilson@stanford.edu>
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
 
-Thanks for the Monday extension; I really appreciate it!
-
-Note that tests/filesys/extended/dir-vine-persistence still fails.
-
-Due to time constraints, I was unable to implement read-ahead in the
-buffer cache (when I tried to add read-ahead threads, I encountered odd
-race condition bugs). Nonetheless, the code for read ahead is in inode.c.
-
-Also, the buffer cache is only used for data blocks on disk, not inodes,
-indirect nor doubly indirect blocks. Again, using the cache for all block
-types brought about odd race condition bugs. The code for this is in the
-HEAD commit in the sync branch.
-
 		     INDEXED AND EXTENSIBLE FILES
 		     ============================
 
@@ -41,41 +29,25 @@ HEAD commit in the sync branch.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-In the inode and inode_disk structs in inode.c:
+off_t read_length;
+uint32_t direct_index; 
+uint32_t indirect_index;
+uint32_t double_indirect_index; 
+struct lock lock;
+block_sector_t ptr[INODE_BLOCK_PTRS]; 
 
-  off_t read_length; // Only in memory inode, needed for extend-read
-                     // atomicity (A4)
-
-  uint32_t direct_index;  // The direct block pointer index i.e.
-                          // pointer index for the inode's 14 pointers
-  uint32_t indirect_index;  // The indirect block pointer index
-  uint32_t double_indirect_index;  // The double indirect pointer index
-  struct lock lock; // Only in memory inode, needed for extension
-                    // atomicity (A3)
-  block_sector_t ptr[INODE_BLOCK_PTRS];  // Pointers to data, indirect and
-                                         // doubly indirect blocks
-
-  // Note: The indexes keep track of what inode block to add next, if the inode
-  // is expanded
-
-Also, in inode.c:
-
-struct indirect_block // Used for indirect and doubly indirect block
-  {
-    block_sector_t ptr[INDIRECT_BLOCK_PTRS]; // Pointers to blocks
-  };
+struct indirect_block
+{
+  block_sector_t ptr[INDIRECT_BLOCK_PTRS]; 
+};
 
 >> A2: What is the maximum size of a file supported by your inode
 >> structure?  Show your work.
 
-Each inode has 14 block pointers with 4 direct blocks, 9 indirect blocks,
-and 1 doubly indirect block. The block sector size is 512 bytes. There are
-128 block pointers for each indirect and doubly indirect block.
-
-Hence the max file size is 4*512 + 9*128*512 + 128*128*512 = 8980480
-bytes = 8.56 MB. The initial size cannot be greater than this limit and
-the inode cannot expand beyond this limit either.
-
+inode: 14 block pointers (where 4 direct, 9 indirect, 1 doubly indirect)
+block sector: 512 bytes
+128 block pointers for inderect blocks
+4 * 512 + (9 + 128) * 128 * 512 = 2k + 137 * 64k = 8770k = 8.564m bytes
 
 ---- SYNCHRONIZATION ----
 

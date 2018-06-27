@@ -13,8 +13,14 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+
+#ifdef USERPROG
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
+#endif
+static int32_t get_user (const uint8_t *uaddr);
+static bool put_user (uint8_t *udst, uint8_t byte);
+static int read_from_usermem (void *src, void *des, size_t bytes);
 
 static void syscall_handler (struct intr_frame *);
 int user_to_kernel_ptr(const void *vaddr);
@@ -22,6 +28,33 @@ void get_arg (struct intr_frame *f, int *arg, int n);
 void check_valid_ptr (const void *vaddr);
 void check_valid_buffer (void* buffer, unsigned size);
 void check_valid_string (const void* str);
+
+/* 
+    SYS_HALT     = 0                   
+    SYS_EXIT     = 1                
+    SYS_EXEC     = 2               
+    SYS_WAIT     = 3            
+    SYS_CREATE   = 4               
+    SYS_REMOVE   = 5             
+    SYS_OPEN     = 6             
+    SYS_FILESIZE = 7              
+    SYS_READ     = 8           
+    SYS_WRITE    = 9              
+    SYS_SEEK     = 10           
+    SYS_TELL     = 11          
+    SYS_CLOSE    = 12  
+    -- VM -- 
+    SYS_MMAP     = 13
+    SYS_MUNMAP   = 14    
+    -- FILESYS --
+    SYS_CHDIR    = 15
+    SYS_MKDIR    = 16
+    SYS_READDIR  = 17
+    SYS_ISDIR    = 18
+    SYS_INUMBER  = 19 
+*/
+
+/* Note: Changed all syscall functions: remove the 'sys_' prefix as they were originally declared. */
 
 void
 syscall_init (void) 
@@ -32,136 +65,155 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+  int syscall_ID;
   int arg[MAX_ARGS];
+  /*read_from_usermem(f->esp, &syscall_ID, sizeof(syscall_ID));
+  check_valid_ptr((const void*) f ->esp); */
   int esp = user_to_kernel_ptr((const void*) f->esp);
-  switch (* (int *) esp)
+  /*    Note: We've changed the way of reading sp, thus syscall_ID should be the value
+        which esp points to when treated as a pointer, and not esp itself. */
+  syscall_ID = * (int* )esp;
+  switch (syscall_ID)
     {
     case SYS_HALT:
       {
-	halt(); 
-	break;
+        halt(); 
+        break;
       }
+
     case SYS_EXIT:
       {
-	get_arg(f, &arg[0], 1);
-	exit(arg[0]);
-	break;
+        int exitcode;
+        get_arg(f, &arg[0], 1);
+        exitcode = arg[0];
+        exit(exitcode);
+        break;
       }
+
     case SYS_EXEC:
       {
-	get_arg(f, &arg[0], 1);
-	check_valid_string((const void *) arg[0]);
-	arg[0] = user_to_kernel_ptr((const void *) arg[0]);
-	f->eax = exec((const char *) arg[0]); 
-	break;
+        void* cmdline;
+        int ret;
+        get_arg(f, &arg[0], 1);
+        check_valid_string((const void *) arg[0]);
+
+        ret = user_to_kernel_ptr((const void *) arg[0]);
+        f->eax = exec((const char *) ret); 
+        break;
       }
     case SYS_WAIT:
       {
-	get_arg(f, &arg[0], 1);
-	f->eax = wait(arg[0]);
-	break;
+        pid_t pid;
+        get_arg(f, &arg[0], 1);
+        pid = arg[0];
+        int ret = wait(pid);
+        f->eax = (uint32_t) ret;
+        break;
       }
     case SYS_CREATE:
       {
-	get_arg(f, &arg[0], 2);
-	check_valid_string((const void *) arg[0]);
-	arg[0] = user_to_kernel_ptr((const void *) arg[0]);
-	f->eax = create((const char *)arg[0], (unsigned) arg[1]);
-	break;
+        get_arg(f, &arg[0], 2);
+        check_valid_string((const void *) arg[0]);
+        arg[0] = user_to_kernel_ptr((const void *) arg[0]);
+        f->eax = create((const char *)arg[0], (unsigned) arg[1]);
+        break;
       }
     case SYS_REMOVE:
       {
-	get_arg(f, &arg[0], 1);
-	check_valid_string((const void *) arg[0]);
-	arg[0] = user_to_kernel_ptr((const void *) arg[0]);
-	f->eax = remove((const char *) arg[0]);
-	break;
+        get_arg(f, &arg[0], 1);
+        check_valid_string((const void *) arg[0]);
+        arg[0] = user_to_kernel_ptr((const void *) arg[0]);
+        f->eax = remove((const char *) arg[0]);
+        break;
       }
     case SYS_OPEN:
       {
-	get_arg(f, &arg[0], 1);
-	check_valid_string((const void *) arg[0]);
-	arg[0] = user_to_kernel_ptr((const void *) arg[0]);
-	f->eax = open((const char *) arg[0]);
-	break; 		
+        get_arg(f, &arg[0], 1);
+        check_valid_string((const void *) arg[0]);
+        arg[0] = user_to_kernel_ptr((const void *) arg[0]);
+        f->eax = open((const char *) arg[0]);
+        break; 		
       }
     case SYS_FILESIZE:
       {
-	get_arg(f, &arg[0], 1);
-	f->eax = filesize(arg[0]);
-	break;
+        get_arg(f, &arg[0], 1);
+        f->eax = filesize(arg[0]);
+        break;
       }
     case SYS_READ:
       {
-	get_arg(f, &arg[0], 3);
-	check_valid_buffer((void *) arg[1], (unsigned) arg[2]);
-	arg[1] = user_to_kernel_ptr((const void *) arg[1]);
-	f->eax = read(arg[0], (void *) arg[1], (unsigned) arg[2]);
-	break;
+        get_arg(f, &arg[0], 3);
+        check_valid_buffer((void *) arg[1], (unsigned) arg[2]);
+        arg[1] = user_to_kernel_ptr((const void *) arg[1]);
+        f->eax = read(arg[0], (void *) arg[1], (unsigned) arg[2]);
+        break;
       }
     case SYS_WRITE:
       { 
-	get_arg(f, &arg[0], 3);
-	check_valid_buffer((void *) arg[1], (unsigned) arg[2]);
-	arg[1] = user_to_kernel_ptr((const void *) arg[1]);
-	f->eax = write(arg[0], (const void *) arg[1],
-		       (unsigned) arg[2]);
-	break;
+        get_arg(f, &arg[0], 3);
+        check_valid_buffer((void *) arg[1], (unsigned) arg[2]);
+        arg[1] = user_to_kernel_ptr((const void *) arg[1]);
+        f->eax = write(arg[0], (const void *) arg[1],
+                (unsigned) arg[2]);
+        break;
       }
     case SYS_SEEK:
       {
-	get_arg(f, &arg[0], 2);
-	seek(arg[0], (unsigned) arg[1]);
-	break;
+        get_arg(f, &arg[0], 2);
+        seek(arg[0], (unsigned) arg[1]);
+        break;
       } 
     case SYS_TELL:
       { 
-	get_arg(f, &arg[0], 1);
-	f->eax = tell(arg[0]);
-	break;
+        get_arg(f, &arg[0], 1);
+        f->eax = tell(arg[0]);
+        break;
       }
     case SYS_CLOSE:
       { 
-	get_arg(f, &arg[0], 1);
-	close(arg[0]);
-	break;
+        get_arg(f, &arg[0], 1);
+        close(arg[0]);
+        break;
       }
     case SYS_CHDIR:
       {
-	get_arg(f, &arg[0], 1);
-	check_valid_string((const void *) arg[0]);
-	arg[0] = user_to_kernel_ptr((const void *) arg[0]);
-	f->eax = chdir((const char *) arg[0]);
-	break;
+        get_arg(f, &arg[0], 1);
+        check_valid_string((const void *) arg[0]);
+        arg[0] = user_to_kernel_ptr((const void *) arg[0]);
+        f->eax = chdir((const char *) arg[0]);
+        break;
       }
     case SYS_MKDIR:
       {
-	get_arg(f, &arg[0], 1);
-	check_valid_string((const void *) arg[0]);
-	arg[0] = user_to_kernel_ptr((const void *) arg[0]);
-	f->eax = mkdir((const char *) arg[0]);
-	break;
+        get_arg(f, &arg[0], 1);
+        check_valid_string((const void *) arg[0]);
+        arg[0] = user_to_kernel_ptr((const void *) arg[0]);
+        f->eax = mkdir((const char *) arg[0]);
+        break;
       }
     case SYS_READDIR:
       {
-	get_arg(f, &arg[0], 2);
-	check_valid_string((const void *) arg[1]);
-	arg[1] = user_to_kernel_ptr((const void *) arg[1]);
-	f->eax = readdir(arg[0], (char *) arg[1]);
-	break;
+        get_arg(f, &arg[0], 2);
+        check_valid_string((const void *) arg[1]);
+        arg[1] = user_to_kernel_ptr((const void *) arg[1]);
+        f->eax = readdir(arg[0], (char *) arg[1]);
+        break;
       }
     case SYS_ISDIR:
       {
-	get_arg(f, &arg[0], 1);
-	f->eax = isdir(arg[0]);
-	break;
+        get_arg(f, &arg[0], 1);
+        f->eax = isdir(arg[0]);
+        break;
       }
     case SYS_INUMBER:
       {
-	get_arg(f, &arg[0], 1);
-	f->eax = inumber(arg[0]);
-	break;
+        get_arg(f, &arg[0], 1);
+        f->eax = inumber(arg[0]);
+        break;
       }
+    default:
+        exit(-1);
+        break;
     }
 }
 
@@ -511,4 +563,39 @@ read_from_usermem(void *src, void *dst, size_t bytes) {
     }
   }
   return (int)bytes;
+}
+
+/* Reads a byte at user virtual address UADDR.
+   UADDR must be below PHYS_BASE.
+   Returns the byte value if successful, -1 if a segfault
+   occurred. */
+static int32_t
+get_user (const uint8_t *uaddr)
+{
+  /* If UADDR >= PHYS_BASE. then there is a segfault. */
+  if (! ((void*)uaddr < PHYS_BASE)){
+    return -1;
+  }
+
+  int result;
+  asm ("movl $1f, %0; movzbl %1, %0; 1:"
+      : "=&a" (result) : "m" (*uaddr));
+  return result;
+}
+
+/* Writes BYTE to user address UDST.
+   UDST must be below PHYS_BASE.
+   Returns true if successful, false if a segfault occurred. */
+static bool
+put_user (uint8_t *udst, uint8_t byte)
+{
+  /* UDST >= PHYS_BASE => Segfault */
+  if (! ((void*)udst < PHYS_BASE)) {
+    return false;
+  }
+
+  int error_code;
+  asm ("movl $1f, %0; movb %b2, %1; 1:"
+      : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+  return error_code != -1;
 }
